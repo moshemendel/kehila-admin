@@ -19,6 +19,27 @@ import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { nanoid } from '../utils/nanoid';
 import ImageCropModal from '../components/ImageCropModal';
+import { sendPush } from '../utils/push';
+
+// Detects kosher-certificate activations/cancellations between saves, so admins
+// (and the push we send below) find out about a cancellation even if it happens
+// via a direct edit here rather than the mobile app's confirm-and-publish flow.
+function detectCertChanges(
+  oldCerts: KosherCertificate[],
+  newCerts: KosherCertificate[],
+): { issuedBy: string; active: boolean }[] {
+  const changes: { issuedBy: string; active: boolean }[] = [];
+  for (const oldC of oldCerts) {
+    const match = newCerts.find(c => c.id === oldC.id);
+    const isActiveNow = match?.isActive ?? false; // removed from the list = cancelled
+    if (oldC.isActive !== isActiveNow) changes.push({ issuedBy: oldC.issuedBy, active: isActiveNow });
+  }
+  for (const newC of newCerts) {
+    const existedBefore = oldCerts.some(c => c.id === newC.id);
+    if (!existedBefore && newC.isActive) changes.push({ issuedBy: newC.issuedBy, active: true });
+  }
+  return changes;
+}
 
 // ─── Map picker ───────────────────────────────────────────────────────────────
 
@@ -209,6 +230,7 @@ export default function BusinessesPage() {
   const [neighborhoods,       setNeighborhoods]       = useState<string[]>([]);
   const [addingNeighborhood,  setAddingNeighborhood]  = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
+  const [cityName, setCityName] = useState('');
 
   // Map modal
   const [mapModalOpen, setMapModalOpen] = useState(false);
@@ -257,6 +279,7 @@ export default function BusinessesPage() {
     getDoc(doc(db, 'cities', cityId)).then(snap => {
       const d = snap.data() as City | undefined;
       setNeighborhoods((d?.neighborhoods ?? []).sort(new Intl.Collator('he').compare));
+      setCityName(d?.name ?? '');
     });
   }, [cityId]);
 
@@ -390,6 +413,8 @@ export default function BusinessesPage() {
     if (canManageKash && !form.name.trim()) return;
     setSaving(true);
     const id = pendingId || nanoid();
+    const oldCerts = editing?.kosherCertificates ?? [];
+    const newCerts = canManageKash ? certs : oldCerts;
     await setDoc(doc(db, 'businesses', id), {
       ...editing,
       ...(canManageKash ? {
@@ -407,9 +432,26 @@ export default function BusinessesPage() {
         images: images.slice(1),
       } : {}),
       id, cityId,
-      kosherCertificates: canManageKash ? certs : (editing?.kosherCertificates ?? []),
+      kosherCertificates: newCerts,
       updatedAt: serverTimestamp(),
     }, { merge: true });
+
+    if (canManageKash && editing) {
+      // Awaited — setModalOpen(false) right after this closes/unmounts the modal,
+      // which could abandon an un-awaited push mid-flight.
+      for (const ch of detectCertChanges(oldCerts, newCerts)) {
+        await sendPush({
+          cityId, cityName,
+          title: `${form.name} — ${ch.active ? 'עדכון כשרות' : 'ביטול כשרות'}`,
+          body: ch.active ? `נוספה/הופעלה תעודת ${ch.issuedBy}` : `בוטלה תעודת ${ch.issuedBy}`,
+          channel: 'general',
+          sentBy: appUser?.uid ?? '',
+          auto: true,
+          data: { screen: 'Restaurants' },
+        }).catch(() => {});
+      }
+    }
+
     setSaving(false);
     setModalOpen(false);
     load();
