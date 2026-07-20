@@ -46,6 +46,7 @@ export default function EventsPage() {
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [cityName, setCityName] = useState('');
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const load = async () => {
     if (!cityId) return;
@@ -83,15 +84,17 @@ export default function EventsPage() {
   const closeCreateModal = () => {
     setModalOpen(false);
     setForm(EMPTY_FORM);
+    setSubmitAttempted(false);
   };
 
   const handleCreate = async () => {
     // Previously this just silently `return`ed with the Publish button disabled
     // and no explanation — looked like the form was stuck if the required field
-    // wasn't obviously highlighted. Now it always responds to a click.
-    if (!form.title.trim())    { alert('יש למלא כותרת'); return; }
-    if (!form.startDate)       { alert('יש למלא תאריך ושעה'); return; }
-    if (!form.location.trim()) { alert('יש למלא מיקום'); return; }
+    // wasn't obviously highlighted. Now missing fields get a red outline instead.
+    if (!form.title.trim() || !form.startDate || !form.location.trim()) {
+      setSubmitAttempted(true);
+      return;
+    }
     setSaving(true);
     try {
       await addDoc(collection(db, 'events'), {
@@ -173,6 +176,11 @@ export default function EventsPage() {
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }));
 
+  const fieldCls = (invalid: boolean) => invalid ? `${inp} border-red-400 ring-1 ring-red-200` : inp;
+  const missingTitle    = submitAttempted && !form.title.trim();
+  const missingStartDate = submitAttempted && !form.startDate;
+  const missingLocation = submitAttempted && !form.location.trim();
+
   // Events without a start date can't be judged expired, so they stay in "upcoming".
   const now = new Date();
   const upcomingEvents = events.filter(e => !e.startDate || new Date(e.startDate) >= now);
@@ -240,16 +248,16 @@ export default function EventsPage() {
       {/* Create event modal */}
       <Modal open={modalOpen} title="אירוע חדש" onClose={closeCreateModal}>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="כותרת *" colSpan><input value={form.title} onChange={f('title')} className={inp} /></Field>
+          <Field label="כותרת *" colSpan><input value={form.title} onChange={f('title')} className={fieldCls(missingTitle)} /></Field>
           <Field label="קטגוריה">
             <select value={form.category} onChange={f('category')} className={inp}>
               {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Field>
           <Field label="תאריך ושעה *">
-            <input value={form.startDate} onChange={f('startDate')} type="datetime-local" className={inp} />
+            <input value={form.startDate} onChange={f('startDate')} type="datetime-local" className={fieldCls(missingStartDate)} />
           </Field>
-          <Field label="מיקום *" colSpan><input value={form.location} onChange={f('location')} className={inp} /></Field>
+          <Field label="מיקום *" colSpan><input value={form.location} onChange={f('location')} className={fieldCls(missingLocation)} /></Field>
           <Field label="תיאור" colSpan>
             <textarea value={form.description} onChange={f('description')} rows={3} className={`${inp} resize-none`} />
           </Field>
