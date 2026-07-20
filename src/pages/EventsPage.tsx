@@ -106,7 +106,7 @@ export default function EventsPage() {
       if (form.isAlert) {
         sendPush({
           cityId, cityName,
-          title: `⚠️ ${form.title.trim()}`,
+          title: `📢 ${form.title.trim()}`,
           body: form.description.trim().slice(0, 120),
           channel: 'general',
           sentBy: appUser?.uid ?? '',
@@ -141,7 +141,7 @@ export default function EventsPage() {
     if (p.isAlert) {
       sendPush({
         cityId, cityName,
-        title: `⚠️ ${p.title}`,
+        title: `📢 ${p.title}`,
         body: p.description.slice(0, 120),
         channel: 'general',
         sentBy: appUser?.uid ?? '',
