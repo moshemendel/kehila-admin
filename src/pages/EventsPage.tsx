@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { collection, getDocs, query, where, doc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDoc, arrayUnion } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,7 +17,7 @@ const CATEGORY_LABELS: Record<EventCategory, string> = {
 
 const EMPTY_FORM = {
   title: '', description: '', category: 'shiur' as EventCategory,
-  startDate: '', location: '', neighborhood: '', isAlert: false,
+  startDate: '', location: '', isAlert: false,
 };
 
 interface PendingEvent extends PendingCommunityEvent { id: string; }
@@ -36,8 +36,6 @@ export default function EventsPage() {
   const { appUser } = useAuth();
   const { setMarkers } = useMapSync();
 
-  const isAdmin = ['city_admin', 'super_admin', 'dev'].includes(appUser?.role ?? '');
-
   const [events, setEvents] = useState<CommunityEvent[]>([]);
   const [pending, setPending] = useState<PendingEvent[]>([]);
   const [tab, setTab] = useState<'published' | 'expired' | 'pending'>('published');
@@ -47,10 +45,6 @@ export default function EventsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  const [neighborhoods,       setNeighborhoods]       = useState<string[]>([]);
-  const [addingNeighborhood,  setAddingNeighborhood]  = useState(false);
-  const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
   const [cityName, setCityName] = useState('');
 
   const load = async () => {
@@ -82,20 +76,9 @@ export default function EventsPage() {
     if (!cityId) return;
     getDoc(doc(db, 'cities', cityId)).then(snap => {
       const d = snap.data() as City | undefined;
-      setNeighborhoods((d?.neighborhoods ?? []).sort(new Intl.Collator('he').compare));
       setCityName(d?.name ?? '');
     });
   }, [cityId]);
-
-  const handleAddNeighborhood = async () => {
-    const text = newNeighborhoodText.trim();
-    if (!text || !cityId) return;
-    await updateDoc(doc(db, 'cities', cityId), { neighborhoods: arrayUnion(text) });
-    setNeighborhoods(prev => [...prev, text].sort(new Intl.Collator('he').compare));
-    setForm(p => ({ ...p, neighborhood: text }));
-    setNewNeighborhoodText('');
-    setAddingNeighborhood(false);
-  };
 
   const closeCreateModal = () => {
     setModalOpen(false);
@@ -106,29 +89,35 @@ export default function EventsPage() {
     // Previously this just silently `return`ed with the Publish button disabled
     // and no explanation — looked like the form was stuck if the required field
     // wasn't obviously highlighted. Now it always responds to a click.
-    if (!form.title.trim()) { alert('יש למלא כותרת'); return; }
+    if (!form.title.trim())    { alert('יש למלא כותרת'); return; }
+    if (!form.startDate)       { alert('יש למלא תאריך ושעה'); return; }
+    if (!form.location.trim()) { alert('יש למלא מיקום'); return; }
     setSaving(true);
-    await addDoc(collection(db, 'events'), {
-      ...form, cityId, createdBy: appUser?.uid ?? '',
-      createdAt: serverTimestamp(), isAlert: form.isAlert,
-      neighborhood: form.neighborhood || undefined,
-    });
-    // Only urgent (isAlert) events broadcast a push to the whole city — regular
-    // events used to push everyone regardless, which felt spammy for the pilot.
-    if (form.isAlert) {
-      sendPush({
-        cityId, cityName,
-        title: `⚠️ ${form.title.trim()}`,
-        body: form.description.trim().slice(0, 120),
-        channel: 'general',
-        sentBy: appUser?.uid ?? '',
-        auto: true,
-        data: { screen: 'Events' },
-      }).catch(() => {});
+    try {
+      await addDoc(collection(db, 'events'), {
+        ...form, cityId, createdBy: appUser?.uid ?? '',
+        createdAt: serverTimestamp(), isAlert: form.isAlert,
+      });
+      // Only urgent (isAlert) events broadcast a push to the whole city — regular
+      // events used to push everyone regardless, which felt spammy for the pilot.
+      if (form.isAlert) {
+        sendPush({
+          cityId, cityName,
+          title: `⚠️ ${form.title.trim()}`,
+          body: form.description.trim().slice(0, 120),
+          channel: 'general',
+          sentBy: appUser?.uid ?? '',
+          auto: true,
+          data: { screen: 'Events' },
+        }).catch(() => {});
+      }
+      closeCreateModal();
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'שגיאה בשמירת האירוע');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    closeCreateModal();
-    load();
   };
 
   const handleDelete = async (id: string) => {
@@ -168,7 +157,6 @@ export default function EventsPage() {
   const columns: Column<CommunityEvent>[] = [
     { key: 'title', header: 'כותרת', sortable: true },
     { key: 'category', header: 'קטגוריה', render: r => CATEGORY_LABELS[r.category] ?? r.category },
-    { key: 'neighborhood', header: 'שכונה', sortable: true },
     { key: 'startDate', header: 'תאריך', render: r => r.startDate ? new Date(r.startDate).toLocaleDateString('he-IL') : '—' },
     { key: 'location', header: 'מיקום' },
     { key: 'isAlert', header: 'דחוף', render: r => r.isAlert ? <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full border border-red-100">דחוף</span> : null },
@@ -258,30 +246,10 @@ export default function EventsPage() {
               {Object.entries(CATEGORY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </Field>
-          <Field label="תאריך ושעה">
+          <Field label="תאריך ושעה *">
             <input value={form.startDate} onChange={f('startDate')} type="datetime-local" className={inp} />
           </Field>
-          <Field label="שכונה">
-            {addingNeighborhood ? (
-              <div className="flex gap-1.5">
-                <input value={newNeighborhoodText} onChange={e => setNewNeighborhoodText(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleAddNeighborhood()} autoFocus placeholder="שם שכונה חדשה" className={inp} />
-                <button onClick={handleAddNeighborhood} className="px-3 py-1.5 bg-[#1B3A6B] text-white rounded-lg text-xs font-semibold">הוסף</button>
-                <button onClick={() => { setAddingNeighborhood(false); setNewNeighborhoodText(''); }} className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs">×</button>
-              </div>
-            ) : (
-              <div className="flex gap-1.5">
-                <select value={form.neighborhood} onChange={f('neighborhood')} className={`${inp} flex-1`}>
-                  <option value="">-- בחר שכונה --</option>
-                  {neighborhoods.map(n => <option key={n} value={n}>{n}</option>)}
-                </select>
-                {isAdmin && (
-                  <button onClick={() => setAddingNeighborhood(true)} className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-blue-600 hover:bg-blue-50 whitespace-nowrap">+ חדשה</button>
-                )}
-              </div>
-            )}
-          </Field>
-          <Field label="מיקום" colSpan><input value={form.location} onChange={f('location')} className={inp} /></Field>
+          <Field label="מיקום *" colSpan><input value={form.location} onChange={f('location')} className={inp} /></Field>
           <Field label="תיאור" colSpan>
             <textarea value={form.description} onChange={f('description')} rows={3} className={`${inp} resize-none`} />
           </Field>
