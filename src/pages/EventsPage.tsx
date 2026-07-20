@@ -8,6 +8,7 @@ import type { CommunityEvent, EventCategory, PendingCommunityEvent, City } from 
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import { Plus, Trash2, CheckCircle2, XCircle } from 'lucide-react';
+import { sendPush } from '../utils/push';
 
 const CATEGORY_LABELS: Record<EventCategory, string> = {
   shiur: 'שיעור', community: 'קהילה', youth: 'נוער', charity: 'צדקה',
@@ -50,6 +51,7 @@ export default function EventsPage() {
   const [neighborhoods,       setNeighborhoods]       = useState<string[]>([]);
   const [addingNeighborhood,  setAddingNeighborhood]  = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
+  const [cityName, setCityName] = useState('');
 
   const load = async () => {
     if (!cityId) return;
@@ -81,6 +83,7 @@ export default function EventsPage() {
     getDoc(doc(db, 'cities', cityId)).then(snap => {
       const d = snap.data() as City | undefined;
       setNeighborhoods((d?.neighborhoods ?? []).sort(new Intl.Collator('he').compare));
+      setCityName(d?.name ?? '');
     });
   }, [cityId]);
 
@@ -94,17 +97,37 @@ export default function EventsPage() {
     setAddingNeighborhood(false);
   };
 
+  const closeCreateModal = () => {
+    setModalOpen(false);
+    setForm(EMPTY_FORM);
+  };
+
   const handleCreate = async () => {
-    if (!form.title.trim()) return;
+    // Previously this just silently `return`ed with the Publish button disabled
+    // and no explanation — looked like the form was stuck if the required field
+    // wasn't obviously highlighted. Now it always responds to a click.
+    if (!form.title.trim()) { alert('יש למלא כותרת'); return; }
     setSaving(true);
     await addDoc(collection(db, 'events'), {
       ...form, cityId, createdBy: appUser?.uid ?? '',
       createdAt: serverTimestamp(), isAlert: form.isAlert,
       neighborhood: form.neighborhood || undefined,
     });
+    // Only urgent (isAlert) events broadcast a push to the whole city — regular
+    // events used to push everyone regardless, which felt spammy for the pilot.
+    if (form.isAlert) {
+      sendPush({
+        cityId, cityName,
+        title: `⚠️ ${form.title.trim()}`,
+        body: form.description.trim().slice(0, 120),
+        channel: 'general',
+        sentBy: appUser?.uid ?? '',
+        auto: true,
+        data: { screen: 'Events' },
+      }).catch(() => {});
+    }
     setSaving(false);
-    setModalOpen(false);
-    setForm(EMPTY_FORM);
+    closeCreateModal();
     load();
   };
 
@@ -123,6 +146,17 @@ export default function EventsPage() {
       synagogueId: p.synagogueId,
     });
     await updateDoc(doc(db, 'pending_events', p.id), { status: 'approved' });
+    if (p.isAlert) {
+      sendPush({
+        cityId, cityName,
+        title: `⚠️ ${p.title}`,
+        body: p.description.slice(0, 120),
+        channel: 'general',
+        sentBy: appUser?.uid ?? '',
+        auto: true,
+        data: { screen: 'Events' },
+      }).catch(() => {});
+    }
     load();
   };
 
@@ -216,7 +250,7 @@ export default function EventsPage() {
       )}
 
       {/* Create event modal */}
-      <Modal open={modalOpen} title="אירוע חדש" onClose={() => setModalOpen(false)}>
+      <Modal open={modalOpen} title="אירוע חדש" onClose={closeCreateModal}>
         <div className="grid grid-cols-2 gap-4">
           <Field label="כותרת *" colSpan><input value={form.title} onChange={f('title')} className={inp} /></Field>
           <Field label="קטגוריה">
@@ -258,11 +292,11 @@ export default function EventsPage() {
           </div>
         </div>
         <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
-          <button onClick={handleCreate} disabled={saving || !form.title.trim()}
+          <button onClick={handleCreate} disabled={saving}
             className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50">
             {saving ? 'שומר...' : 'פרסם אירוע'}
           </button>
-          <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">ביטול</button>
+          <button onClick={closeCreateModal} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">ביטול</button>
         </div>
       </Modal>
 
