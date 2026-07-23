@@ -68,7 +68,10 @@ export default function MikvehPage() {
   const { appUser } = useAuth();
   const { setMarkers } = useMapSync();
 
-  const isAdmin = ['city_admin', 'super_admin', 'dev'].includes(appUser?.role ?? '');
+  // A user can hold several roles at once — check the full array (falling back
+  // to the single primary role for accounts saved before roles[] existed).
+  const roles = appUser?.roles ?? (appUser?.role ? [appUser.role] : []);
+  const isAdmin = roles.some((r) => ['city_admin', 'super_admin', 'dev', 'mikveh_manager'].includes(r));
 
   const [data, setData] = useState<Mikveh[]>([]);
   const [loading, setLoading] = useState(true);

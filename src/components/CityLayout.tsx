@@ -18,7 +18,7 @@ import {
 const TABS = [
   { sub: '',             label: 'סקירה',    icon: LayoutDashboard, allowedRoles: ['super_admin','city_admin','dev']                },
   { sub: 'synagogues',   label: 'בתי כנסת', icon: Building2,       allowedRoles: ['super_admin','city_admin','dev','gabbai']       },
-  { sub: 'mikvaot',      label: 'מקואות',   icon: Droplets,        allowedRoles: ['super_admin','city_admin','dev']                },
+  { sub: 'mikvaot',      label: 'מקואות',   icon: Droplets,        allowedRoles: ['super_admin','city_admin','dev','mikveh_manager'] },
   { sub: 'kosher',       label: 'כשרות',    icon: UtensilsCrossed, allowedRoles: ['super_admin','city_admin','dev','kosher_manager'] },
   { sub: 'businesses',   label: 'בתי עסק',  icon: Store,           allowedRoles: ['super_admin','city_admin','dev','business_manager'] },
   { sub: 'events',       label: 'אירועים',  icon: CalendarDays,    allowedRoles: ['super_admin','city_admin','dev','event_manager']  },

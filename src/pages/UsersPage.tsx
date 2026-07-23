@@ -16,6 +16,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   gabbai:           'גבאי',
   business_manager: 'מנהל עסק',
   kosher_manager:   'מנהל כשרות',
+  mikveh_manager:   'מנהל מקוואות',
   event_manager:    'מנהל אירועים',
   eruv_manager:     'מנהל עירוב',
   city_admin:       'מנהל עיר',
@@ -28,6 +29,7 @@ const ROLE_COLORS: Record<UserRole, string> = {
   gabbai:           'bg-blue-50 text-blue-700',
   business_manager: 'bg-green-50 text-green-700',
   kosher_manager:   'bg-emerald-50 text-emerald-700',
+  mikveh_manager:   'bg-cyan-50 text-cyan-700',
   event_manager:    'bg-orange-50 text-orange-700',
   eruv_manager:     'bg-purple-50 text-purple-700',
   city_admin:       'bg-red-50 text-red-700',
@@ -37,8 +39,8 @@ const ROLE_COLORS: Record<UserRole, string> = {
 
 // Roles a given actor can assign to others
 const ASSIGNABLE_BY: Record<string, UserRole[]> = {
-  super_admin: ['user', 'gabbai', 'business_manager', 'kosher_manager', 'event_manager', 'eruv_manager', 'city_admin', 'dev', 'super_admin'],
-  city_admin:       ['user', 'gabbai', 'business_manager', 'kosher_manager', 'event_manager', 'eruv_manager'],
+  super_admin: ['user', 'gabbai', 'business_manager', 'kosher_manager', 'mikveh_manager', 'event_manager', 'eruv_manager', 'city_admin', 'dev', 'super_admin'],
+  city_admin:       ['user', 'gabbai', 'business_manager', 'kosher_manager', 'mikveh_manager', 'event_manager', 'eruv_manager'],
 };
 
 // Roles that are hidden from admin (city manager) — only super_admin sees them
@@ -139,7 +141,7 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
 // Priority for computing the single `role` field kept for auth checks (mirrors the app)
 const ROLE_PRIORITY: UserRole[] = [
   'super_admin', 'dev', 'city_admin', 'event_manager',
-  'kosher_manager', 'eruv_manager', 'business_manager', 'gabbai', 'user',
+  'kosher_manager', 'mikveh_manager', 'eruv_manager', 'business_manager', 'gabbai', 'user',
 ];
 
 function computePrimaryRole(roles: UserRole[]): UserRole {
