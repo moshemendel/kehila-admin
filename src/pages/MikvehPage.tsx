@@ -7,10 +7,11 @@ import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMapSync } from '../contexts/MapSyncContext';
-import type { Mikveh, MikvehType, DayKey, City } from '../types';
+import type { Mikveh, MikvehType, HoursBlock, City } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import ExcelImportModal from '../components/ExcelImportModal';
+import HoursScheduleEditor from '../components/HoursScheduleEditor';
 import { exportToExcel } from '../utils/excel';
 import { Plus, Pencil, Trash2, Upload, Download, MapPin } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
@@ -19,8 +20,6 @@ import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 
 const TYPE_LABELS: Record<MikvehType, string> = { women: 'נשים', men: 'גברים', both: 'נשים וגברים' };
-const DAYS_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
-const DAYS_EN = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 
 const PIN_ICON = L.divIcon({
   html: `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#1B3A6B">
@@ -49,16 +48,16 @@ function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: number | nul
 }
 
 type ContactRow = { name: string; phone: string };
-type ApptConfig = { slotDurationMin: number; schedule: Partial<Record<DayKey, { enabled: boolean; start: string; end: string }>> };
+type ApptConfig = { slotDurationMin: number; parallelTracks: number; prepMultiplier: number };
 
-const EMPTY_APPT_CONFIG: ApptConfig = { slotDurationMin: 30, schedule: {} };
+const EMPTY_APPT_CONFIG: ApptConfig = { slotDurationMin: 30, parallelTracks: 1, prepMultiplier: 2 };
 
 const EMPTY_FORM = {
   name: '', type: 'women' as MikvehType, neighborhood: '', address: '',
   phone: '', notes: '', requiresAppointment: false,
   latitude: undefined as number | undefined,
   longitude: undefined as number | undefined,
-  openingHours: {} as Record<string, string>,
+  hoursSchedule: [] as HoursBlock[],
   contacts: [{ name: '', phone: '' }] as ContactRow[],
   appointmentConfig: EMPTY_APPT_CONFIG as ApptConfig,
 };
@@ -138,10 +137,12 @@ export default function MikvehPage() {
       address: row.address ?? '', phone: row.phone ?? '', notes: row.notes ?? '',
       requiresAppointment: row.requiresAppointment,
       latitude: row.latitude, longitude: row.longitude,
-      openingHours: (row.openingHours as any) ?? {},
+      hoursSchedule: row.hoursSchedule ?? [],
       contacts: row.contacts?.length ? row.contacts.map(c => ({ name: c.name, phone: c.phone ?? '' })) : [{ name: '', phone: '' }],
+      // Merge over defaults rather than replacing outright — a doc saved before
+      // parallelTracks/prepMultiplier existed would otherwise load those as undefined.
       appointmentConfig: row.appointmentConfig
-        ? { slotDurationMin: row.appointmentConfig.slotDurationMin, schedule: { ...row.appointmentConfig.schedule } }
+        ? { ...EMPTY_APPT_CONFIG, ...row.appointmentConfig }
         : EMPTY_APPT_CONFIG,
     });
     setModalOpen(true);
@@ -171,7 +172,7 @@ export default function MikvehPage() {
     await Promise.all(rows.map(row => {
       const id = nanoid();
       return setDoc(doc(db, 'mikvaot', id), {
-        ...row, id, cityId, openingHours: {}, requiresAppointment: false, updatedAt: serverTimestamp(),
+        ...row, id, cityId, hoursSchedule: [], requiresAppointment: false, updatedAt: serverTimestamp(),
       });
     }));
     load();
@@ -194,18 +195,6 @@ export default function MikvehPage() {
 
   const removeContact = (i: number) =>
     setForm(p => p.contacts.length > 1 ? { ...p, contacts: p.contacts.filter((_, j) => j !== i) } : p);
-
-  const updateDaySchedule = (day: DayKey, field: 'enabled' | 'start' | 'end', value: boolean | string) =>
-    setForm(p => ({
-      ...p,
-      appointmentConfig: {
-        ...p.appointmentConfig,
-        schedule: {
-          ...p.appointmentConfig.schedule,
-          [day]: { enabled: false, start: '09:00', end: '20:00', ...p.appointmentConfig.schedule[day], [field]: value },
-        },
-      },
-    }));
 
   const columns: Column<Mikveh>[] = [
     { key: 'name', header: 'שם', sortable: true },
@@ -370,64 +359,47 @@ export default function MikvehPage() {
             </div>
           </div>
 
-          {/* Opening hours */}
+          {/* Opening hours — also used to generate appointment slots */}
           <Field label="שעות פתיחה" colSpan>
-            <div className="grid grid-cols-2 gap-2 mt-1">
-              {DAYS_EN.map((day, i) => (
-                <div key={day} className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 w-12">{DAYS_HE[i]}</span>
-                  <input
-                    value={(form.openingHours as any)[day] ?? ''}
-                    onChange={e => setForm(p => ({ ...p, openingHours: { ...p.openingHours, [day]: e.target.value } }))}
-                    placeholder="09:00-20:00"
-                    className={`${inp} flex-1 text-xs`}
-                  />
-                </div>
-              ))}
-            </div>
+            <HoursScheduleEditor
+              value={form.hoursSchedule}
+              onChange={v => setForm(p => ({ ...p, hoursSchedule: v }))}
+            />
           </Field>
 
           {/* Appointment config — only when requiresAppointment */}
           {form.requiresAppointment && (
             <div className="col-span-2 pt-3 border-t border-slate-100">
               <p className="text-sm font-semibold text-slate-700 mb-3">הגדרת תורים אונליין</p>
-              <div className="flex items-center gap-3 mb-3">
-                <label className={lbl} style={{ marginBottom: 0, whiteSpace: 'nowrap' }}>משך תור (דקות)</label>
-                <input
-                  type="number" min={5} step={5}
-                  value={form.appointmentConfig.slotDurationMin}
-                  onChange={e => setForm(p => ({ ...p, appointmentConfig: { ...p.appointmentConfig, slotDurationMin: parseInt(e.target.value) || 30 } }))}
-                  className={`${inp} w-20`}
-                />
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="משך תור (דקות)">
+                  <input
+                    type="number" min={5} step={5}
+                    value={form.appointmentConfig.slotDurationMin}
+                    onChange={e => setForm(p => ({ ...p, appointmentConfig: { ...p.appointmentConfig, slotDurationMin: parseInt(e.target.value) || 30 } }))}
+                    className={inp}
+                  />
+                </Field>
+                <Field label="חדרי הכנה (מקבילים)">
+                  <input
+                    type="number" min={1} step={1}
+                    value={form.appointmentConfig.parallelTracks}
+                    onChange={e => setForm(p => ({ ...p, appointmentConfig: { ...p.appointmentConfig, parallelTracks: parseInt(e.target.value) || 1 } }))}
+                    className={inp}
+                  />
+                </Field>
+                <Field label="מכפיל זמן הכנה">
+                  <select
+                    value={form.appointmentConfig.prepMultiplier}
+                    onChange={e => setForm(p => ({ ...p, appointmentConfig: { ...p.appointmentConfig, prepMultiplier: parseInt(e.target.value) } }))}
+                    className={inp}
+                  >
+                    <option value={2}>×2</option>
+                    <option value={3}>×3</option>
+                  </select>
+                </Field>
               </div>
-              <div className="space-y-1.5">
-                {DAYS_EN.map((day, i) => {
-                  const s = form.appointmentConfig.schedule[day] ?? { enabled: false, start: '09:00', end: '20:00' };
-                  return (
-                    <div key={day} className="flex items-center gap-3">
-                      <label className="flex items-center gap-1.5 cursor-pointer w-16">
-                        <input
-                          type="checkbox" checked={s.enabled}
-                          onChange={e => updateDaySchedule(day, 'enabled', e.target.checked)}
-                          className="w-3.5 h-3.5 accent-blue-600"
-                        />
-                        <span className="text-xs text-slate-600">{DAYS_HE[i]}</span>
-                      </label>
-                      <input
-                        type="time" value={s.start} disabled={!s.enabled}
-                        onChange={e => updateDaySchedule(day, 'start', e.target.value)}
-                        className={`${inp} w-28 text-xs ${!s.enabled ? 'opacity-40' : ''}`}
-                      />
-                      <span className="text-xs text-slate-400">עד</span>
-                      <input
-                        type="time" value={s.end} disabled={!s.enabled}
-                        onChange={e => updateDaySchedule(day, 'end', e.target.value)}
-                        className={`${inp} w-28 text-xs ${!s.enabled ? 'opacity-40' : ''}`}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
+              <p className="text-xs text-slate-400 mt-2">שעות התורים מבוססות על שעות הפתיחה שהוגדרו למעלה.</p>
             </div>
           )}
 

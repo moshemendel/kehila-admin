@@ -150,6 +150,24 @@ export interface OpeningHours {
   wednesday?: string; thursday?: string; friday?: string; saturday?: string;
 }
 
+export type DayKey = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
+
+// One opening-hours block: a time range that applies to a chosen set of days.
+// A day can appear in more than one block (e.g. split morning/evening hours).
+export interface HoursBlock {
+  id: string;
+  days: DayKey[];
+  start: string; // "HH:MM"
+  end: string;   // "HH:MM"
+}
+
+// Appointment-specific settings only — the actual schedule lives on Mikveh.hoursSchedule.
+export interface AppointmentConfig {
+  slotDurationMin: number;
+  parallelTracks: number; // concurrent prep rooms/tracks allowed to overlap; default 1
+  prepMultiplier: number; // how many base slots a "prep at mikveh" appointment spans (2 or 3); default 2
+}
+
 export interface Mikveh {
   id: string;
   cityId: string;
@@ -158,7 +176,7 @@ export interface Mikveh {
   neighborhood?: string;
   address: string;
   phone?: string;
-  openingHours: OpeningHours;
+  hoursSchedule?: HoursBlock[]; // opening hours — also used to generate appointment slots
   requiresAppointment: boolean;
   appointmentPhone?: string;
   appointmentConfig?: AppointmentConfig;
@@ -168,10 +186,6 @@ export interface Mikveh {
   longitude?: number;
   updatedAt?: Date;
 }
-
-export type DayKey = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
-export interface DaySlotConfig { enabled: boolean; start: string; end: string; }
-export interface AppointmentConfig { slotDurationMin: number; schedule: Partial<Record<DayKey, DaySlotConfig>>; }
 
 export type KosherLevel = 'mehadrin' | 'regular' | 'chalav_israel' | 'bishul_israel' | 'glatt';
 
