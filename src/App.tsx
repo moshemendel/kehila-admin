@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CityProvider } from './contexts/CityContext';
 import Layout from './components/Layout';
 import CityLayout from './components/CityLayout';
+import ShabbatLockGate from './components/ShabbatLockGate';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import CitiesMapPage from './pages/CitiesMapPage';
@@ -71,12 +72,14 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <CityProvider>
-          <AppRoutes />
-        </CityProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <ShabbatLockGate>
+      <BrowserRouter>
+        <AuthProvider>
+          <CityProvider>
+            <AppRoutes />
+          </CityProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ShabbatLockGate>
   );
 }
