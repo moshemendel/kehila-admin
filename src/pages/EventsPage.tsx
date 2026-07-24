@@ -130,31 +130,39 @@ export default function EventsPage() {
   };
 
   const handleApprovePending = async (p: PendingEvent) => {
-    await addDoc(collection(db, 'events'), {
-      cityId, title: p.title, description: p.description, category: p.category,
-      startDate: p.startDate, endDate: p.endDate, location: p.location,
-      organizer: p.organizer, isAlert: p.isAlert,
-      createdBy: p.submittedBy, createdAt: serverTimestamp(),
-      synagogueId: p.synagogueId,
-    });
-    await updateDoc(doc(db, 'pending_events', p.id), { status: 'approved' });
-    if (p.isAlert) {
-      sendPush({
-        cityId, cityName,
-        title: `📢 ${p.title}`,
-        body: p.description.slice(0, 120),
-        channel: 'general',
-        sentBy: appUser?.uid ?? '',
-        auto: true,
-        data: { screen: 'Events' },
-      }).catch(() => {});
+    try {
+      await addDoc(collection(db, 'events'), {
+        cityId, title: p.title, description: p.description, category: p.category,
+        startDate: p.startDate, endDate: p.endDate, location: p.location,
+        organizer: p.organizer, isAlert: p.isAlert,
+        createdBy: p.submittedBy, createdAt: serverTimestamp(),
+        synagogueId: p.synagogueId,
+      });
+      await updateDoc(doc(db, 'pending_events', p.id), { status: 'approved' });
+      if (p.isAlert) {
+        sendPush({
+          cityId, cityName,
+          title: `📢 ${p.title}`,
+          body: p.description.slice(0, 120),
+          channel: 'general',
+          sentBy: appUser?.uid ?? '',
+          auto: true,
+          data: { screen: 'Events' },
+        }).catch(() => {});
+      }
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'שגיאה באישור האירוע');
     }
-    load();
   };
 
   const handleRejectPending = async (id: string) => {
-    await updateDoc(doc(db, 'pending_events', id), { status: 'rejected' });
-    load();
+    try {
+      await updateDoc(doc(db, 'pending_events', id), { status: 'rejected' });
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'שגיאה בדחיית האירוע');
+    }
   };
 
   const columns: Column<CommunityEvent>[] = [
