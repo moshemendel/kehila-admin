@@ -45,17 +45,22 @@ export default function CitySettingsPage() {
   const handleSave = async () => {
     if (!cityId || !form.name.trim() || !form.latitude || !form.longitude) return;
     setSaving(true);
-    await updateDoc(doc(db, 'cities', cityId), {
-      name: form.name.trim(),
-      country: form.country.trim(),
-      timezone: form.timezone.trim(),
-      latitude: parseFloat(form.latitude),
-      longitude: parseFloat(form.longitude),
-      ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
-    });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    try {
+      await updateDoc(doc(db, 'cities', cityId), {
+        name: form.name.trim(),
+        country: form.country.trim(),
+        timezone: form.timezone.trim(),
+        latitude: parseFloat(form.latitude),
+        longitude: parseFloat(form.longitude),
+        ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) return <div className="p-8 text-slate-400 text-sm">טוען...</div>;

@@ -500,24 +500,32 @@ export default function SynagogueDetailPage() {
   const handleAddNusach = async () => {
     const trimmed = newNusachLabel.trim();
     if (!trimmed || !cityId || nusachOptions.some(o => o.label === trimmed)) return;
-    const newOpt: NusachOption = { key: trimmed, label: trimmed };
-    await updateDoc(doc(db, 'cities', cityId), { nusachOptions: arrayUnion(newOpt) });
-    const updated = [...nusachOptions, newOpt];
-    setNusachOptions(updated);
-    setInfo(p => ({ ...p, nusach: [...(p.nusach ?? []), trimmed] }));
-    setNewNusachLabel('');
-    setAddingNusach(false);
+    try {
+      const newOpt: NusachOption = { key: trimmed, label: trimmed };
+      await updateDoc(doc(db, 'cities', cityId), { nusachOptions: arrayUnion(newOpt) });
+      const updated = [...nusachOptions, newOpt];
+      setNusachOptions(updated);
+      setInfo(p => ({ ...p, nusach: [...(p.nusach ?? []), trimmed] }));
+      setNewNusachLabel('');
+      setAddingNusach(false);
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בהוספת נוסח');
+    }
   };
 
   const handleAddNeighborhood = async () => {
     const trimmed = newNeighborhoodText.trim();
     if (!trimmed || !cityId || neighborhoods.includes(trimmed)) return;
-    await updateDoc(doc(db, 'cities', cityId), { neighborhoods: arrayUnion(trimmed) });
-    const updated = [...neighborhoods, trimmed].sort((a, b) => a.localeCompare(b, 'he'));
-    setNeighborhoods(updated);
-    setInfo(p => ({ ...p, neighborhood: trimmed }));
-    setNewNeighborhoodText('');
-    setAddingNeighborhood(false);
+    try {
+      await updateDoc(doc(db, 'cities', cityId), { neighborhoods: arrayUnion(trimmed) });
+      const updated = [...neighborhoods, trimmed].sort((a, b) => a.localeCompare(b, 'he'));
+      setNeighborhoods(updated);
+      setInfo(p => ({ ...p, neighborhood: trimmed }));
+      setNewNeighborhoodText('');
+      setAddingNeighborhood(false);
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בהוספת שכונה');
+    }
   };
 
   const toArr = (v: unknown): string[] =>
@@ -572,54 +580,80 @@ export default function SynagogueDetailPage() {
   const saveInfo = async () => {
     if (!id || !info.name.trim()) return;
     setSaving(true);
-    const firstGabbai = info.gabbaim[0];
-    await updateDoc(doc(db, 'synagogues', id), {
-      name: info.name, nusach: info.nusach, neighborhood: info.neighborhood,
-      address: { he: info.addressHe },
-      rabbi: info.rabbi, rabbiPhone: info.rabbiPhone,
-      gabbaim: info.gabbaim,
-      gabbaiName: firstGabbai?.name ?? '',
-      gabbaiPhone: firstGabbai?.phone ?? '',
-      notes: info.notes,
-      latitude: parseFloat(info.latitude) || null,
-      longitude: parseFloat(info.longitude) || null,
-      updatedAt: serverTimestamp(),
-    });
-    setSaving(false); flash();
+    try {
+      const firstGabbai = info.gabbaim[0];
+      await updateDoc(doc(db, 'synagogues', id), {
+        name: info.name, nusach: info.nusach, neighborhood: info.neighborhood,
+        address: { he: info.addressHe },
+        rabbi: info.rabbi, rabbiPhone: info.rabbiPhone,
+        gabbaim: info.gabbaim,
+        gabbaiName: firstGabbai?.name ?? '',
+        gabbaiPhone: firstGabbai?.phone ?? '',
+        notes: info.notes,
+        latitude: parseFloat(info.latitude) || null,
+        longitude: parseFloat(info.longitude) || null,
+        updatedAt: serverTimestamp(),
+      });
+      flash();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveWeekly = async () => {
     if (!id) return;
     setSaving(true);
-    await updateDoc(doc(db, 'synagogues', id), {
-      weeklySchedule: { ...weekly, notes: weeklyNotes },
-      updatedAt: serverTimestamp(),
-    });
-    setSaving(false); flash();
+    try {
+      await updateDoc(doc(db, 'synagogues', id), {
+        weeklySchedule: { ...weekly, notes: weeklyNotes },
+        updatedAt: serverTimestamp(),
+      });
+      flash();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveShabbat = async () => {
     if (!id) return;
     setSaving(true);
-    await updateDoc(doc(db, 'synagogues', id), {
-      shabbatSchedule: { ...shabbat, notes: shabbatNotes },
-      updatedAt: serverTimestamp(),
-    });
-    setSaving(false); flash();
+    try {
+      await updateDoc(doc(db, 'synagogues', id), {
+        shabbatSchedule: { ...shabbat, notes: shabbatNotes },
+        updatedAt: serverTimestamp(),
+      });
+      flash();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveShiurim = async (list: Shiur[]) => {
     if (!id) return;
     setShiurim(list);
-    await updateDoc(doc(db, 'synagogues', id), { shiurim: list, updatedAt: serverTimestamp() });
-    flash();
+    try {
+      await updateDoc(doc(db, 'synagogues', id), { shiurim: list, updatedAt: serverTimestamp() });
+      flash();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    }
   };
 
   const saveAnnouncements = async (list: SynagogueAnnouncement[]) => {
     if (!id) return;
     setAnnouncements(list);
-    await updateDoc(doc(db, 'synagogues', id), { synagogueEvents: list, updatedAt: serverTimestamp() });
-    flash();
+    try {
+      await updateDoc(doc(db, 'synagogues', id), { synagogueEvents: list, updatedAt: serverTimestamp() });
+      flash();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    }
   };
 
   const handleShiurSave = (s: Shiur) => {

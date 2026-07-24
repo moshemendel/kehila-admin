@@ -108,35 +108,51 @@ export default function GemachPage() {
 
   const handleDelete = async () => {
     if (!deleteId) return;
-    await deleteDoc(doc(db, 'gemachs', deleteId));
-    setDeleteId(null);
-    await load();
+    try {
+      await deleteDoc(doc(db, 'gemachs', deleteId));
+      setDeleteId(null);
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'שגיאה במחיקה');
+    }
   };
 
   const toggleActive = async (g: Gemach) => {
-    await updateDoc(doc(db, 'gemachs', g.id), { isActive: !g.isActive });
-    await load();
+    try {
+      await updateDoc(doc(db, 'gemachs', g.id), { isActive: !g.isActive });
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'שגיאה בעדכון');
+    }
   };
 
   const approvePending = async (p: PendingGemach) => {
-    await addDoc(collection(db, 'gemachs'), {
-      cityId: p.cityId, name: p.name, category: p.category,
-      contactName: p.contactName, phone: p.phone,
-      neighborhood: p.neighborhood ?? null,
-      description: p.description ?? null,
-      hours: p.hours ?? null,
-      isActive: true, createdAt: serverTimestamp(),
-      // The original submitter owns the gemach once approved — not whoever
-      // happened to click approve.
-      createdBy: p.submittedBy ?? '',
-    });
-    await updateDoc(doc(db, 'pending_gemachs', p.id), { status: 'approved' });
-    await load();
+    try {
+      await addDoc(collection(db, 'gemachs'), {
+        cityId: p.cityId, name: p.name, category: p.category,
+        contactName: p.contactName, phone: p.phone,
+        neighborhood: p.neighborhood ?? null,
+        description: p.description ?? null,
+        hours: p.hours ?? null,
+        isActive: true, createdAt: serverTimestamp(),
+        // The original submitter owns the gemach once approved — not whoever
+        // happened to click approve.
+        createdBy: p.submittedBy ?? '',
+      });
+      await updateDoc(doc(db, 'pending_gemachs', p.id), { status: 'approved' });
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'שגיאה באישור');
+    }
   };
 
   const rejectPending = async (p: PendingGemach) => {
-    await updateDoc(doc(db, 'pending_gemachs', p.id), { status: 'rejected' });
-    await load();
+    try {
+      await updateDoc(doc(db, 'pending_gemachs', p.id), { status: 'rejected' });
+      await load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'שגיאה בדחייה');
+    }
   };
 
   const gemachCols: Column<Gemach>[] = [

@@ -239,15 +239,20 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
   const handleSave = async () => {
     if (!user) return;
     setSaving(true);
-    // The city picker above only assigns a city_admin's administrative scope —
-    // it must not overwrite an existing manager's homeCityId when unrelated
-    // role fields are being edited.
-    const homeCityId = draft.roles.includes('city_admin')
-      ? draft.cityId
-      : (user.homeCityId ?? user.cityId);
-    await onSave(user.uid, draft, computePrimaryRole(draft.roles), homeCityId);
-    setSaving(false);
-    onClose();
+    try {
+      // The city picker above only assigns a city_admin's administrative scope —
+      // it must not overwrite an existing manager's homeCityId when unrelated
+      // role fields are being edited.
+      const homeCityId = draft.roles.includes('city_admin')
+        ? draft.cityId
+        : (user.homeCityId ?? user.cityId);
+      await onSave(user.uid, draft, computePrimaryRole(draft.roles), homeCityId);
+      onClose();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const citySynagogues = synagogues.filter(s => s.cityId === draft.cityId);

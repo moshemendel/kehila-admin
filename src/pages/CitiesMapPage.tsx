@@ -281,46 +281,61 @@ export default function CitiesMapPage() {
   const handleAdd = async () => {
     if (!form.name.trim() || !form.latitude || !form.longitude) return;
     setSaving(true);
-    const id = nanoid(16);
-    await setDoc(doc(db, 'cities', id), {
-      name: form.name.trim(),
-      country: form.country.trim() || 'ישראל',
-      timezone: form.timezone.trim() || 'Asia/Jerusalem',
-      latitude: parseFloat(form.latitude),
-      longitude: parseFloat(form.longitude),
-      ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
-    });
-    setSaving(false);
-    setAddOpen(false);
-    setForm(EMPTY);
-    load();
+    try {
+      const id = nanoid(16);
+      await setDoc(doc(db, 'cities', id), {
+        name: form.name.trim(),
+        country: form.country.trim() || 'ישראל',
+        timezone: form.timezone.trim() || 'Asia/Jerusalem',
+        latitude: parseFloat(form.latitude),
+        longitude: parseFloat(form.longitude),
+        ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
+      });
+      setAddOpen(false);
+      setForm(EMPTY);
+      load();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleEdit = async () => {
     if (!actionCity || !form.name.trim() || !form.latitude || !form.longitude) return;
     setSaving(true);
-    await updateDoc(doc(db, 'cities', actionCity.id), {
-      name: form.name.trim(),
-      country: form.country.trim(),
-      timezone: form.timezone.trim(),
-      latitude: parseFloat(form.latitude),
-      longitude: parseFloat(form.longitude),
-      ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
-    });
-    setSaving(false);
-    setEditOpen(false);
-    setActionCity(null);
-    load();
+    try {
+      await updateDoc(doc(db, 'cities', actionCity.id), {
+        name: form.name.trim(),
+        country: form.country.trim(),
+        timezone: form.timezone.trim(),
+        latitude: parseFloat(form.latitude),
+        longitude: parseFloat(form.longitude),
+        ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
+      });
+      setEditOpen(false);
+      setActionCity(null);
+      load();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async () => {
     if (!actionCity) return;
     setSaving(true);
-    await deleteDoc(doc(db, 'cities', actionCity.id));
-    setSaving(false);
-    setDeleteOpen(false);
-    setActionCity(null);
-    load();
+    try {
+      await deleteDoc(doc(db, 'cities', actionCity.id));
+      setDeleteOpen(false);
+      setActionCity(null);
+      load();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה במחיקה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
