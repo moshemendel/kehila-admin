@@ -151,15 +151,20 @@ export default function MikvehPage() {
   const handleSave = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
-    const id = editing?.id ?? nanoid();
-    await setDoc(doc(db, 'mikvaot', id), {
-      ...editing, ...form, id, cityId, updatedAt: serverTimestamp(),
-      contacts: form.contacts.filter(c => c.name.trim()).map(c => ({ name: c.name, ...(c.phone ? { phone: c.phone } : {}) })),
-      appointmentConfig: form.requiresAppointment ? form.appointmentConfig : null,
-    }, { merge: true });
-    setSaving(false);
-    setModalOpen(false);
-    load();
+    try {
+      const id = editing?.id ?? nanoid();
+      await setDoc(doc(db, 'mikvaot', id), {
+        ...editing, ...form, id, cityId, updatedAt: serverTimestamp(),
+        contacts: form.contacts.filter(c => c.name.trim()).map(c => ({ name: c.name, ...(c.phone ? { phone: c.phone } : {}) })),
+        appointmentConfig: form.requiresAppointment ? form.appointmentConfig : null,
+      }, { merge: true });
+      setModalOpen(false);
+      load();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {

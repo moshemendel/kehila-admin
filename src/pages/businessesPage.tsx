@@ -412,49 +412,54 @@ export default function BusinessesPage() {
   const handleSave = async () => {
     if (canManageKash && !form.name.trim()) return;
     setSaving(true);
-    const id = pendingId || nanoid();
-    const oldCerts = editing?.kosherCertificates ?? [];
-    const newCerts = canManageKash ? certs : oldCerts;
-    await setDoc(doc(db, 'businesses', id), {
-      ...editing,
-      ...(canManageKash ? {
-        name: form.name, category: form.category, neighborhood: form.neighborhood,
-        address: form.address,
-        latitude:  form.latitude  ?? deleteField(),
-        longitude: form.longitude ?? deleteField(),
-        isHidden: form.isHidden,
-        contacts: contacts.filter(c => c.name.trim()).map(c => ({ name: c.name, ...(c.phone ? { phone: c.phone } : {}) })),
-      } : {}),
-      ...(canManageOps ? {
-        phone: form.phone, website: form.website,
-        description: form.description, openingHours: form.openingHours,
-        imageUrl: images[0] ?? '',
-        images: images.slice(1),
-      } : {}),
-      id, cityId,
-      kosherCertificates: newCerts,
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
+    try {
+      const id = pendingId || nanoid();
+      const oldCerts = editing?.kosherCertificates ?? [];
+      const newCerts = canManageKash ? certs : oldCerts;
+      await setDoc(doc(db, 'businesses', id), {
+        ...editing,
+        ...(canManageKash ? {
+          name: form.name, category: form.category, neighborhood: form.neighborhood,
+          address: form.address,
+          latitude:  form.latitude  ?? deleteField(),
+          longitude: form.longitude ?? deleteField(),
+          isHidden: form.isHidden,
+          contacts: contacts.filter(c => c.name.trim()).map(c => ({ name: c.name, ...(c.phone ? { phone: c.phone } : {}) })),
+        } : {}),
+        ...(canManageOps ? {
+          phone: form.phone, website: form.website,
+          description: form.description, openingHours: form.openingHours,
+          imageUrl: images[0] ?? '',
+          images: images.slice(1),
+        } : {}),
+        id, cityId,
+        kosherCertificates: newCerts,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
 
-    if (canManageKash && editing) {
-      // Awaited — setModalOpen(false) right after this closes/unmounts the modal,
-      // which could abandon an un-awaited push mid-flight.
-      for (const ch of detectCertChanges(oldCerts, newCerts)) {
-        await sendPush({
-          cityId, cityName,
-          title: `${form.name} — ${ch.active ? 'עדכון כשרות' : 'ביטול כשרות'}`,
-          body: ch.active ? `נוספה/הופעלה תעודת ${ch.issuedBy}` : `בוטלה תעודת ${ch.issuedBy}`,
-          channel: 'general',
-          sentBy: appUser?.uid ?? '',
-          auto: true,
-          data: { screen: 'Restaurants' },
-        }).catch(() => {});
+      if (canManageKash && editing) {
+        // Awaited — setModalOpen(false) right after this closes/unmounts the modal,
+        // which could abandon an un-awaited push mid-flight.
+        for (const ch of detectCertChanges(oldCerts, newCerts)) {
+          await sendPush({
+            cityId, cityName,
+            title: `${form.name} — ${ch.active ? 'עדכון כשרות' : 'ביטול כשרות'}`,
+            body: ch.active ? `נוספה/הופעלה תעודת ${ch.issuedBy}` : `בוטלה תעודת ${ch.issuedBy}`,
+            channel: 'general',
+            sentBy: appUser?.uid ?? '',
+            auto: true,
+            data: { screen: 'Restaurants' },
+          }).catch(() => {});
+        }
       }
-    }
 
-    setSaving(false);
-    setModalOpen(false);
-    load();
+      setModalOpen(false);
+      load();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {

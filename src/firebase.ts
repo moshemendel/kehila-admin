@@ -1,6 +1,6 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
@@ -15,6 +15,17 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// ignoreUndefinedProperties: without it, setDoc()/addDoc() calls that spread a form
+// object containing undefined-valued keys (e.g. unset latitude/longitude) silently
+// neither resolve nor reject — no error, no network request, just a hung save.
+// initializeFirestore throws if Firestore was already initialized for this app
+// (e.g. on a Vite HMR re-run of this module), so fall back to the existing instance.
+let db: Firestore;
+try {
+  db = initializeFirestore(app, { ignoreUndefinedProperties: true });
+} catch {
+  db = getFirestore(app);
+}
+export { db };
 export const storage = getStorage(app);
 export default app;

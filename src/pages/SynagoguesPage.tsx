@@ -117,18 +117,23 @@ export default function SynagoguesPage() {
   const handleSave = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
-    const id = editing?.id ?? nanoid();
-    await setDoc(doc(db, 'synagogues', id), {
-      ...editing,
-      ...form,
-      id,
-      cityId,
-      weeklySchedule: editing?.weeklySchedule ?? { shacharit: [], mincha: [], maariv: [] },
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-    setSaving(false);
-    setModalOpen(false);
-    load();
+    try {
+      const id = editing?.id ?? nanoid();
+      await setDoc(doc(db, 'synagogues', id), {
+        ...editing,
+        ...form,
+        id,
+        cityId,
+        weeklySchedule: editing?.weeklySchedule ?? { shacharit: [], mincha: [], maariv: [] },
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+      setModalOpen(false);
+      load();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
