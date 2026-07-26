@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  collection, getDocs, query, where, doc, setDoc, deleteDoc,
-  serverTimestamp, documentId, deleteField, getDoc, updateDoc, arrayUnion,
+  collection, getDocs, query, where, doc, setDoc, deleteDoc, addDoc,
+  serverTimestamp, documentId, deleteField, getDoc, updateDoc, arrayUnion, Timestamp,
 } from 'firebase/firestore';
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '../firebase';
 import { useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMapSync } from '../contexts/MapSyncContext';
-import type { business, KosherCertificate, KosherLevel, City } from '../types';
+import type { business, KosherCertificate, KosherLevel, City, KashrutUpdate } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import ExcelImportModal from '../components/ExcelImportModal';
@@ -21,24 +21,108 @@ import { nanoid } from '../utils/nanoid';
 import ImageCropModal from '../components/ImageCropModal';
 import { sendPush } from '../utils/push';
 
-// Detects kosher-certificate activations/cancellations between saves, so admins
-// (and the push we send below) find out about a cancellation even if it happens
-// via a direct edit here rather than the mobile app's confirm-and-publish flow.
+// Admin-created certs never set certifierType (that field only exists on kehila-app's
+// richer type), so this is the name-based fallback kehila-app's own isLocalRabbanut
+// already falls back to for legacy certs — kept in sync with that heuristic.
+function isLocalRabbanut(c: KosherCertificate): boolean {
+  return (c.issuedBy ?? '').includes('רבנות');
+}
+
+interface CertChange {
+  direction: 'up' | 'down';
+  certType: 'local_rabbanut' | 'badatz';
+  tags: string[];
+  note?: string;
+}
+
+// Mirrors kehila-app's detectCertChanges (services/restaurants.ts) so a change made
+// here and a change made on mobile produce identical kashrutUpdates entries/wording.
 function detectCertChanges(
   oldCerts: KosherCertificate[],
   newCerts: KosherCertificate[],
-): { issuedBy: string; active: boolean }[] {
-  const changes: { issuedBy: string; active: boolean }[] = [];
-  for (const oldC of oldCerts) {
-    const match = newCerts.find(c => c.id === oldC.id);
-    const isActiveNow = match?.isActive ?? false; // removed from the list = cancelled
-    if (oldC.isActive !== isActiveNow) changes.push({ issuedBy: oldC.issuedBy, active: isActiveNow });
+): CertChange[] {
+  const changes: CertChange[] = [];
+
+  const oldRab = oldCerts.find(isLocalRabbanut) ?? oldCerts[0];
+  const newRab = newCerts.find(isLocalRabbanut) ?? newCerts[0];
+  const wasActive   = oldRab?.isActive ?? false;
+  const isActive    = newRab?.isActive ?? false;
+  const wasMehadrin = (oldRab?.kosherLevel ?? []).includes('mehadrin');
+  const isMehadrin  = (newRab?.kosherLevel ?? []).includes('mehadrin');
+
+  if (wasActive !== isActive) {
+    changes.push({
+      direction: isActive ? 'up' : 'down',
+      certType: 'local_rabbanut',
+      tags: [isActive ? 'הופעלה' : 'הושבתה'],
+    });
+  } else if (wasActive && isActive && wasMehadrin !== isMehadrin) {
+    changes.push({
+      direction: isMehadrin ? 'up' : 'down',
+      certType: 'local_rabbanut',
+      tags: [isMehadrin ? 'מהדרין' : 'רגיל'],
+    });
   }
-  for (const newC of newCerts) {
-    const existedBefore = oldCerts.some(c => c.id === newC.id);
-    if (!existedBefore && newC.isActive) changes.push({ issuedBy: newC.issuedBy, active: true });
+
+  const oldBadatz = oldCerts.filter((c) => c !== oldRab);
+  const newBadatz = newCerts.filter((c) => c !== newRab);
+  const rabbanutStillActive = isActive;
+
+  for (const old of oldBadatz) {
+    if (!old.isActive) continue;
+    const match = newBadatz.find((n) => n.id === old.id || n.issuedBy === old.issuedBy);
+    if (!match || !match.isActive) {
+      changes.push({
+        direction: 'down',
+        certType: 'badatz',
+        tags: [old.issuedBy || 'בד"ץ'],
+        note: rabbanutStillActive ? 'כשרות הרבנות בתוקף' : undefined,
+      });
+    }
   }
+
+  for (const nw of newBadatz) {
+    if (!nw.isActive) continue;
+    const match = oldBadatz.find((o) => o.id === nw.id || o.issuedBy === nw.issuedBy);
+    if (!match || !match.isActive) {
+      changes.push({
+        direction: 'up',
+        certType: 'badatz',
+        tags: [nw.issuedBy || 'בד"ץ'],
+      });
+    }
+  }
+
   return changes;
+}
+
+// Same phrasing as kehila-app's formatKashrutUpdateTitle/Detail (services/kashrutUpdates.ts)
+// so a push/feed entry reads identically regardless of which app triggered it.
+function changeTitle(ch: CertChange): string {
+  const down = ch.direction === 'down';
+  if (ch.certType === 'local_rabbanut') return down ? 'שינוי כשרות רבנות' : 'שדרוג כשרות רבנות';
+  if (ch.certType === 'badatz')         return down ? 'הסרת בד"ץ'         : 'הוספת בד"ץ';
+  return down ? 'ירידת כשרות' : 'שדרוג כשרות';
+}
+
+function changeDetail(ch: CertChange): string {
+  const tag = ch.tags.join(' · ');
+  if (ch.certType === 'local_rabbanut') return ch.direction === 'up' ? `שודרגה ל${tag}` : `שונתה ל${tag}`;
+  if (ch.certType === 'badatz')         return ch.direction === 'up' ? `נוסף: ${tag}`    : `הוסר: ${tag}`;
+  return tag;
+}
+
+const KASHRUT_UPDATE_TTL_DAYS = 30;
+
+// Writes to the same kashrutUpdates collection kehila-app's ManageKosherScreen writes
+// to, so console-made cert changes show up in mobile's "עדכוני כשרות" feed too.
+async function createKashrutUpdate(data: Omit<KashrutUpdate, 'id' | 'createdAt' | 'expiresAt'>) {
+  const expiresAt = Timestamp.fromDate(new Date(Date.now() + KASHRUT_UPDATE_TTL_DAYS * 24 * 60 * 60 * 1000));
+  const payload: Record<string, any> = { createdAt: serverTimestamp(), expiresAt };
+  for (const [k, v] of Object.entries(data)) {
+    if (v !== undefined) payload[k] = v;
+  }
+  await addDoc(collection(db, 'kashrutUpdates'), payload);
 }
 
 // ─── Map picker ───────────────────────────────────────────────────────────────
@@ -439,12 +523,16 @@ export default function BusinessesPage() {
 
       if (canManageKash && editing) {
         // Awaited — setModalOpen(false) right after this closes/unmounts the modal,
-        // which could abandon an un-awaited push mid-flight.
+        // which could abandon an un-awaited push/write mid-flight.
         for (const ch of detectCertChanges(oldCerts, newCerts)) {
+          await createKashrutUpdate({
+            cityId, businessId: id, businessName: form.name,
+            direction: ch.direction, certType: ch.certType, tags: ch.tags, note: ch.note,
+          }).catch(() => {});
           await sendPush({
             cityId, cityName,
-            title: `${form.name} — ${ch.active ? 'עדכון כשרות' : 'ביטול כשרות'}`,
-            body: ch.active ? `נוספה/הופעלה תעודת ${ch.issuedBy}` : `בוטלה תעודת ${ch.issuedBy}`,
+            title: `${form.name} — ${changeTitle(ch)}`,
+            body: ch.note || changeDetail(ch),
             channel: 'general',
             sentBy: appUser?.uid ?? '',
             auto: true,

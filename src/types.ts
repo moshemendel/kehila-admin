@@ -199,6 +199,21 @@ export interface KosherCertificate {
   notes?: string;
 }
 
+// Mirrors kehila-app's KashrutUpdate — same collection (kashrutUpdates), feeds the
+// mobile app's "עדכוני כשרות" screen.
+export interface KashrutUpdate {
+  id: string;
+  cityId: string;
+  businessId: string;
+  businessName: string;
+  direction: 'up' | 'down';
+  certType?: 'local_rabbanut' | 'badatz';
+  tags: string[];
+  note?: string;
+  createdAt: any;
+  expiresAt?: any;
+}
+
 export interface business {
   id: string;
   cityId: string;
