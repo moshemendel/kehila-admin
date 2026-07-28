@@ -13,7 +13,7 @@ import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import ExcelImportModal from '../components/ExcelImportModal';
 import { exportToExcel } from '../utils/excel';
-import { Plus, Pencil, Trash2, Upload, Download, ShieldCheck, EyeOff, ImagePlus, Star, X, MapPin } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, Download, ShieldCheck, EyeOff, ImagePlus, Star, X, MapPin, Square, CheckSquare, AlertTriangle, ArrowUpCircle } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -298,6 +298,13 @@ export default function BusinessesPage() {
   const [certEditId, setCertEditId] = useState<string | 'new' | null>(null);
   const [certDraft,  setCertDraft]  = useState<CertDraft>(EMPTY_CERT);
 
+  // Post-save "publish this kashrut change?" confirmation (canManageKash only) —
+  // the business doc is already saved by the time this shows; this only decides
+  // whether to also write a kashrutUpdates entry + push notification.
+  const [certAlertsToConfirm, setCertAlertsToConfirm] = useState<{ id: string; name: string; changes: CertChange[] } | null>(null);
+  const [selectedCertAlerts,  setSelectedCertAlerts]  = useState<Set<number>>(new Set());
+  const [publishingCertAlerts, setPublishingCertAlerts] = useState(false);
+
   // Image state (canManageOps)
   const [images,     setImages]     = useState<string[]>([]);  // ordered; [0] = primary
   const [uploading,  setUploading]  = useState(false);
@@ -500,6 +507,15 @@ export default function BusinessesPage() {
       const id = pendingId || nanoid();
       const oldCerts = editing?.kosherCertificates ?? [];
       const newCerts = canManageKash ? certs : oldCerts;
+      const changes  = canManageKash && editing ? detectCertChanges(oldCerts, newCerts) : [];
+
+      // Sync isHidden with the rabbanut cert's active state, same as kehila-app's
+      // ManageKosherScreen — otherwise the manual "הסתר מהאפליקציה" checkbox stays
+      // stuck at whatever it was when the cert was last deactivated, even after
+      // the admin reactivates it here.
+      const rabbanutDeactivated = changes.some(c => c.certType === 'local_rabbanut' && c.direction === 'down' && c.tags.includes('הושבתה'));
+      const rabbanutReactivated = changes.some(c => c.certType === 'local_rabbanut' && c.direction === 'up'   && c.tags.includes('הופעלה'));
+
       await setDoc(doc(db, 'businesses', id), {
         ...editing,
         ...(canManageKash ? {
@@ -507,7 +523,7 @@ export default function BusinessesPage() {
           address: form.address,
           latitude:  form.latitude  ?? deleteField(),
           longitude: form.longitude ?? deleteField(),
-          isHidden: form.isHidden,
+          isHidden: rabbanutDeactivated ? true : rabbanutReactivated ? false : form.isHidden,
           contacts: contacts.filter(c => c.name.trim()).map(c => ({ name: c.name, ...(c.phone ? { phone: c.phone } : {}) })),
         } : {}),
         ...(canManageOps ? {
@@ -522,22 +538,14 @@ export default function BusinessesPage() {
       }, { merge: true });
 
       if (canManageKash && editing) {
-        // Awaited — setModalOpen(false) right after this closes/unmounts the modal,
-        // which could abandon an un-awaited push/write mid-flight.
-        for (const ch of detectCertChanges(oldCerts, newCerts)) {
-          await createKashrutUpdate({
-            cityId, businessId: id, businessName: form.name,
-            direction: ch.direction, certType: ch.certType, tags: ch.tags, note: ch.note,
-          }).catch(() => {});
-          await sendPush({
-            cityId, cityName,
-            title: `${form.name} — ${changeTitle(ch)}`,
-            body: ch.note || changeDetail(ch),
-            channel: 'general',
-            sentBy: appUser?.uid ?? '',
-            auto: true,
-            data: { screen: 'Restaurants' },
-          }).catch(() => {});
+        if (changes.length > 0) {
+          // Business doc is already saved — this only decides whether to also
+          // publish a kashrutUpdates entry + push. Keep the edit modal open
+          // behind it until the admin decides.
+          setCertAlertsToConfirm({ id, name: form.name, changes });
+          setSelectedCertAlerts(new Set(changes.map((_, i) => i)));
+          load();
+          return;
         }
       }
 
@@ -549,6 +557,55 @@ export default function BusinessesPage() {
       setSaving(false);
     }
   };
+
+  function toggleCertAlert(i: number) {
+    setSelectedCertAlerts(prev => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      return next;
+    });
+  }
+
+  // Publish the selected changes (kashrutUpdates entry + push per change).
+  async function handlePublishCertAlerts() {
+    if (!certAlertsToConfirm) return;
+    setPublishingCertAlerts(true);
+    try {
+      const { id, name, changes } = certAlertsToConfirm;
+      const toPublish = changes.filter((_, i) => selectedCertAlerts.has(i));
+      for (const ch of toPublish) {
+        await createKashrutUpdate({
+          cityId, businessId: id, businessName: name,
+          direction: ch.direction, certType: ch.certType, tags: ch.tags, note: ch.note,
+        }).catch(() => {});
+        await sendPush({
+          cityId, cityName,
+          title: `${name} — ${changeTitle(ch)}`,
+          body: ch.note || changeDetail(ch),
+          channel: 'general',
+          sentBy: appUser?.uid ?? '',
+          auto: true,
+          data: { screen: 'Businesses' },
+        }).catch(() => {});
+      }
+    } finally {
+      setPublishingCertAlerts(false);
+      setCertAlertsToConfirm(null);
+      setModalOpen(false);
+    }
+  }
+
+  // Declines to publish and closes out of editing this business.
+  function handleSkipCertAlerts() {
+    setCertAlertsToConfirm(null);
+    setModalOpen(false);
+  }
+
+  // Dismisses the dialog only — the business stays open for further editing,
+  // and the publish decision can be revisited by saving again.
+  function handleCancelCertAlerts() {
+    setCertAlertsToConfirm(null);
+  }
 
   const handleDelete = async (id: string) => {
     await deleteDoc(doc(db, 'businesses', id));
@@ -968,6 +1025,57 @@ export default function BusinessesPage() {
           </button>
         </div>
 
+      </Modal>
+
+      {/* Kashrut change publish confirmation — business is already saved by now,
+          this only decides whether to also publish an alert about it. */}
+      <Modal open={!!certAlertsToConfirm} title="עדכוני כשרות לפרסום" onClose={handleCancelCertAlerts} size="md">
+        <p className="text-slate-500 text-sm mb-4">בחר אילו שינויים לפרסם לציבור</p>
+        <div className="space-y-2 mb-4">
+          {(certAlertsToConfirm?.changes ?? []).map((ch, i) => {
+            const sel  = selectedCertAlerts.has(i);
+            const down = ch.direction === 'down';
+            return (
+              <button
+                key={i}
+                onClick={() => toggleCertAlert(i)}
+                className={`w-full flex items-start gap-3 p-3 rounded-xl border text-right transition-colors ${sel ? 'border-blue-300 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}
+              >
+                {sel ? <CheckSquare size={18} className="text-blue-600 shrink-0 mt-0.5" /> : <Square size={18} className="text-slate-300 shrink-0 mt-0.5" />}
+                {down ? <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" /> : <ArrowUpCircle size={16} className="text-emerald-500 shrink-0 mt-0.5" />}
+                <div className="flex-1">
+                  <div className={`text-sm font-bold ${down ? 'text-red-600' : 'text-emerald-600'}`}>{changeTitle(ch)}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{changeDetail(ch)}</div>
+                  {ch.note && (
+                    <div className="text-xs text-emerald-600 mt-1 flex items-center gap-1">
+                      <ShieldCheck size={11} /> {ch.note}
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <button
+          onClick={handlePublishCertAlerts}
+          disabled={publishingCertAlerts || selectedCertAlerts.size === 0}
+          className="w-full bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-40"
+        >
+          {publishingCertAlerts
+            ? 'מפרסם...'
+            : selectedCertAlerts.size > 0
+              ? `פרסם ${selectedCertAlerts.size} ${selectedCertAlerts.size === 1 ? 'עדכון' : 'עדכונים'}`
+              : 'לא נבחרו עדכונים'}
+        </button>
+        <div className="flex gap-3 mt-2">
+          <button onClick={handleSkipCertAlerts} disabled={publishingCertAlerts} className="flex-1 px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50 disabled:opacity-40">
+            דלג על הפרסום
+          </button>
+          <button onClick={handleCancelCertAlerts} disabled={publishingCertAlerts} className="flex-1 px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50 disabled:opacity-40">
+            ביטול
+          </button>
+        </div>
       </Modal>
 
       {/* Map picker modal */}

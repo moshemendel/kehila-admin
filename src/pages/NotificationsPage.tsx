@@ -374,7 +374,7 @@ export default function NotificationsPage() {
               <option value="Home">🏠 בית</option>
               <option value="Eruv">🛡️ עירוב</option>
               <option value="Events">📅 אירועים</option>
-              <option value="Restaurants">🍽️ כשרות</option>
+              <option value="Businesses">🍽️ כשרות</option>
               <option value="Synagogues">🕍 בתי כנסת</option>
               <option value="Mikveh">💧 מקווה</option>
               <option value="Gemach">🎁 גמ"ח</option>
