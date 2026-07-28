@@ -3,7 +3,6 @@ import { collection, getDocs, query, where, doc, deleteDoc, updateDoc, addDoc, s
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useMapSync } from '../contexts/MapSyncContext';
 import type { CommunityEvent, EventCategory, PendingCommunityEvent, City } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
@@ -34,7 +33,6 @@ function toMillis(v: unknown): number {
 export default function EventsPage() {
   const { cityId = '' } = useParams<{ cityId: string }>();
   const { appUser } = useAuth();
-  const { setMarkers } = useMapSync();
 
   const [events, setEvents] = useState<CommunityEvent[]>([]);
   const [pending, setPending] = useState<PendingEvent[]>([]);
@@ -209,7 +207,7 @@ export default function EventsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit mb-5">
-        {([['published', 'פורסם', upcomingEvents.length], ['pending', 'ממתין לאישור', pending.length], ['expired', 'ארכיון']] as const).map(([t, label, count]) => (
+        {([['published', 'פורסם', upcomingEvents.length], ['pending', 'ממתין לאישור', pending.length], ['expired', 'ארכיון', 0]] as const).map(([t, label, count]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
             {label} {count > 0 && <span className={`mr-1 text-xs px-1.5 py-0.5 rounded-full ${t === 'pending' ? 'bg-orange-100 text-orange-600' : 'bg-slate-200 text-slate-600'}`}>{count}</span>}

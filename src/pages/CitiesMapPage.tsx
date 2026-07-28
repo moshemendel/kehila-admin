@@ -354,8 +354,6 @@ export default function CitiesMapPage() {
   const center: [number, number] = [31.5, 34.9];
   const filtered = cities.filter(c => !search || c.name.toLowerCase().includes(search.toLowerCase()));
 
-  const inp = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400';
-
   return (
     <div className="relative flex-1 h-full" dir="rtl">
 

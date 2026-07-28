@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Gemach, GemachCategory, PendingGemach } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
-import { Plus, Trash2, CheckCircle2, XCircle, Gift } from 'lucide-react';
+import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Gift } from 'lucide-react';
 
 const CATEGORY_LABELS: Record<GemachCategory, string> = {
   clothing:  'ביגוד',
@@ -156,11 +156,11 @@ export default function GemachPage() {
   };
 
   const gemachCols: Column<Gemach>[] = [
-    { key: 'name',     label: 'שם הגמ"ח' },
-    { key: 'category', label: 'קטגוריה',  render: g => CATEGORY_LABELS[g.category] },
-    { key: 'phone',    label: 'טלפון',    render: g => g.phone ?? '—' },
-    { key: 'neighborhood', label: 'שכונה', render: g => g.neighborhood ?? '—' },
-    { key: 'isActive', label: 'פעיל',     render: g => (
+    { key: 'name',     header: 'שם הגמ"ח' },
+    { key: 'category', header: 'קטגוריה',  render: g => CATEGORY_LABELS[g.category] },
+    { key: 'phone',    header: 'טלפון',    render: g => g.phone ?? '—' },
+    { key: 'neighborhood', header: 'שכונה', render: g => g.neighborhood ?? '—' },
+    { key: 'isActive', header: 'פעיל',     render: g => (
       <button
         onClick={() => toggleActive(g)}
         className={`text-xs font-bold px-2 py-0.5 rounded-full ${
@@ -170,14 +170,6 @@ export default function GemachPage() {
         {g.isActive ? 'פעיל' : 'מושבת'}
       </button>
     )},
-  ];
-
-  const pendingCols: Column<PendingGemach>[] = [
-    { key: 'name',        label: 'שם הגמ"ח' },
-    { key: 'category',    label: 'קטגוריה',  render: p => CATEGORY_LABELS[p.category] },
-    { key: 'contactName', label: 'איש קשר' },
-    { key: 'phone',       label: 'טלפון' },
-    { key: 'submittedByName', label: 'הוגש ע"י', render: p => p.submittedByName ?? '—' },
   ];
 
   return (
@@ -225,14 +217,19 @@ export default function GemachPage() {
 
       {/* Published list */}
       {tab === 'published' && (
-        <DataTable
-          columns={gemachCols}
-          data={gemachs}
-          loading={loading}
-          onEdit={isAdmin ? openEdit : undefined}
-          onDelete={isAdmin ? (g) => setDeleteId(g.id) : undefined}
-          emptyMessage='אין גמ"חים עדיין'
-        />
+        loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
+          <DataTable
+            columns={gemachCols}
+            data={gemachs}
+            onRowClick={isAdmin ? openEdit : undefined}
+            actions={isAdmin ? (g) => (
+              <div className="flex items-center gap-1">
+                <button onClick={() => openEdit(g)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600"><Pencil size={14} /></button>
+                <button onClick={() => setDeleteId(g.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
+              </div>
+            ) : undefined}
+          />
+        )
       )}
 
       {/* Pending list */}
@@ -278,7 +275,7 @@ export default function GemachPage() {
 
       {/* Add/Edit modal */}
       <Modal
-        isOpen={modalOpen}
+        open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editId ? 'עריכת גמ"ח' : 'הוספת גמ"ח'}
       >
@@ -362,7 +359,7 @@ export default function GemachPage() {
       </Modal>
 
       {/* Delete confirm */}
-      <Modal isOpen={!!deleteId} onClose={() => setDeleteId(null)} title='מחיקת גמ"ח'>
+      <Modal open={!!deleteId} onClose={() => setDeleteId(null)} title='מחיקת גמ"ח'>
         <p className="text-sm text-slate-600 mb-4">האם למחוק את הגמ"ח? פעולה זו אינה הפיכה.</p>
         <div className="flex gap-3 justify-end">
           <button onClick={() => setDeleteId(null)} className="px-4 py-2 text-sm text-slate-600">ביטול</button>

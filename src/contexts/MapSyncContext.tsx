@@ -5,7 +5,7 @@ export interface MapMarker {
   lat: number;
   lng: number;
   label: string;
-  type?: 'synagogue' | 'mikveh' | 'restaurant' | 'event';
+  type?: 'synagogue' | 'mikveh' | 'restaurant' | 'business' | 'event';
 }
 
 interface MapSyncType {

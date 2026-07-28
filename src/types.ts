@@ -231,6 +231,8 @@ export interface business {
   latitude?: number;
   longitude?: number;
   isHidden?: boolean;
+  imageUrl?: string;
+  images?: string[];
   updatedAt?: Date;
 }
 
