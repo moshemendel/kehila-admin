@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import type { UserRole } from '../types';
 
-const ALLOWED_ROLES: UserRole[] = ['super_admin', 'city_admin', 'dev', 'gabbai', 'business_manager', 'kosher_manager', 'event_manager', 'eruv_manager'];
+const ALLOWED_ROLES: UserRole[] = ['super_admin', 'city_admin', 'dev', 'gabbai', 'business_manager', 'kosher_manager', 'event_manager', 'eruv_manager', 'mikveh_manager'];
 
 export default function Login() {
   const [email, setEmail]     = useState('');
@@ -22,8 +22,14 @@ export default function Login() {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       const snap = await getDoc(doc(db, 'users', cred.user.uid));
       if (!snap.exists()) { setError('משתמש לא נמצא במערכת'); auth.signOut(); return; }
-      const role = snap.data().role as UserRole;
-      if (!ALLOWED_ROLES.includes(role)) { setError('אין הרשאה לגשת לממשק הניהול'); auth.signOut(); return; }
+      // A user can hold several roles at once — check the full array (falling
+      // back to the singular primary role for accounts saved before roles[]
+      // existed), same as every role check elsewhere in this app. Checking
+      // only the primary role would incorrectly lock out e.g. a gabbai who's
+      // also a mikveh_manager but not primarily one.
+      const data = snap.data();
+      const roles = (data.roles as UserRole[] | undefined) ?? [data.role as UserRole];
+      if (!roles.some((r) => ALLOWED_ROLES.includes(r))) { setError('אין הרשאה לגשת לממשק הניהול'); auth.signOut(); return; }
       navigate('/');
     } catch (err: any) {
       setError(err.code === 'auth/invalid-credential' ? 'אימייל או סיסמה שגויים' : 'שגיאה בהתחברות');
