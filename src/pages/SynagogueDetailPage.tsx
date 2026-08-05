@@ -26,7 +26,7 @@ const WEEKDAYS = [
 const ALL_DAYS = [...WEEKDAYS, { num: 7, label: 'ש׳' }];
 
 const ANCHORS: { key: ZmanimAnchor; label: string }[] = [
-  { key: 'netz', label: 'הנץ' }, { key: 'shkia', label: 'שקיעה' },
+  { key: 'netz', label: 'הנץ' }, { key: 'shkia', label: 'שקיעה' }, { key: 'tzeit', label: 'צאת הכוכבים' },
   { key: 'chatzot', label: 'חצות' }, { key: 'plagHamincha', label: 'פלג המנחה' },
   { key: 'minchaGedola', label: 'מנחה גדולה' }, { key: 'minchaKetana', label: 'מנחה קטנה' },
 ];

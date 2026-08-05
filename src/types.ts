@@ -72,7 +72,7 @@ export interface City {
 
 export type NusachType = string[];
 
-export type ZmanimAnchor = 'netz' | 'shkia' | 'chatzot' | 'plagHamincha' | 'minchaGedola' | 'minchaKetana';
+export type ZmanimAnchor = 'netz' | 'shkia' | 'tzeit' | 'chatzot' | 'plagHamincha' | 'minchaGedola' | 'minchaKetana';
 
 export interface PrayerTimeSlot {
   time: string;           // "HH:MM" for fixed; empty string for anchor-relative
@@ -154,11 +154,21 @@ export type DayKey = 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' 
 
 // One opening-hours block: a time range that applies to a chosen set of days.
 // A day can appear in more than one block (e.g. split morning/evening hours).
+// Each boundary can independently be a fixed clock time or anchor-relative
+// (e.g. "shkia -30"), mirroring PrayerTimeSlot's anchor/offsetMin/proportional
+// convention: the string field ('start'/'end') is '' when the corresponding
+// anchor field is set.
 export interface HoursBlock {
   id: string;
   days: DayKey[];
-  start: string; // "HH:MM"
-  end: string;   // "HH:MM"
+  start: string; // "HH:MM"; '' when startAnchor is set
+  end: string;   // "HH:MM"; '' when endAnchor is set
+  startAnchor?: ZmanimAnchor;
+  startOffsetMin?: number;
+  startProportional?: boolean;
+  endAnchor?: ZmanimAnchor;
+  endOffsetMin?: number;
+  endProportional?: boolean;
 }
 
 // Appointment-specific settings only — the actual schedule lives on Mikveh.hoursSchedule.
