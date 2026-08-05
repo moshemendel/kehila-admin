@@ -13,7 +13,7 @@ import Modal from '../components/Modal';
 import ExcelImportModal from '../components/ExcelImportModal';
 import HoursScheduleEditor from '../components/HoursScheduleEditor';
 import { exportToExcel } from '../utils/excel';
-import { Plus, Pencil, Trash2, Upload, Download, MapPin } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
@@ -173,6 +173,32 @@ export default function MikvehPage() {
     load();
   };
 
+  // Most fields (hours, type, appointment config) are legitimately the same
+  // across a city's mikvaot and tedious to re-enter — copy those, leave the
+  // per-location fields (name/address/contacts/pin) blank so the admin only
+  // has to fill in what's actually unique to the new one.
+  // Nothing is written to Firestore here — just an id reserved client-side
+  // (nanoid, not a Firestore round-trip) — handleSave's existing setDoc
+  // upsert is what actually creates the doc, and only on a real save, so
+  // closing the modal without saving leaves no orphaned record.
+  const handleDuplicate = (row: Mikveh) => {
+    const id = nanoid();
+    const dupForm = {
+      ...EMPTY_FORM,
+      name: `${row.name} (העתק)`,
+      type: row.type,
+      requiresAppointment: row.requiresAppointment,
+      hoursSchedule: row.hoursSchedule ?? [],
+      appointmentConfig: row.appointmentConfig
+        ? { ...EMPTY_APPT_CONFIG, ...row.appointmentConfig }
+        : EMPTY_APPT_CONFIG,
+    };
+    setEditing({ id, cityId, ...dupForm, contacts: [] } as Mikveh);
+    setPendingPick(null);
+    setForm(dupForm);
+    setModalOpen(true);
+  };
+
   const handleImport = async (rows: Partial<Mikveh>[]) => {
     await Promise.all(rows.map(row => {
       const id = nanoid();
@@ -244,6 +270,7 @@ export default function MikvehPage() {
           actions={row => (
             <div className="flex items-center gap-1">
               <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600"><Pencil size={14} /></button>
+              <button onClick={() => handleDuplicate(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="שכפל"><Copy size={14} /></button>
               <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
             </div>
           )}
