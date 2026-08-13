@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
-  collection, getDocs, query, where, doc,
-  deleteDoc, updateDoc, addDoc, serverTimestamp,
+  collection, getDocs, query, where, doc, getDoc,
+  deleteDoc, updateDoc, addDoc, serverTimestamp, arrayUnion,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Gemach, GemachCategory, PendingGemach } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
-import { Plus, Pencil, Trash2, CheckCircle2, XCircle, Gift } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, XCircle, Gift } from 'lucide-react';
 
 const CATEGORY_LABELS: Record<GemachCategory, string> = {
   clothing:  'ביגוד',
@@ -45,6 +45,26 @@ export default function GemachPage() {
   const [editId,   setEditId]   = useState<string | null>(null);
   const [saving,   setSaving]   = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
+  const [addingNeighborhood, setAddingNeighborhood] = useState(false);
+  const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
+
+  const loadNeighborhoods = async () => {
+    if (!cityId) return;
+    const snap = await getDoc(doc(db, 'cities', cityId));
+    const hoods = snap.data()?.neighborhoods as string[] | undefined;
+    setNeighborhoods((hoods ?? []).sort((a, b) => a.localeCompare(b, 'he')));
+  };
+
+  const handleAddNeighborhood = async () => {
+    const text = newNeighborhoodText.trim();
+    if (!text || !cityId || neighborhoods.includes(text)) return;
+    await updateDoc(doc(db, 'cities', cityId), { neighborhoods: arrayUnion(text) });
+    setNeighborhoods(prev => [...prev, text].sort((a, b) => a.localeCompare(b, 'he')));
+    setForm(p => ({ ...p, neighborhood: text }));
+    setNewNeighborhoodText('');
+    setAddingNeighborhood(false);
+  };
 
   const load = async () => {
     if (!cityId) return;
@@ -70,7 +90,7 @@ export default function GemachPage() {
     }
   };
 
-  useEffect(() => { load(); }, [cityId]);
+  useEffect(() => { load(); loadNeighborhoods(); }, [cityId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openAdd = () => { setForm(EMPTY_FORM); setEditId(null); setModalOpen(true); };
   const openEdit = (g: Gemach) => {
@@ -223,10 +243,7 @@ export default function GemachPage() {
             data={gemachs}
             onRowClick={isAdmin ? openEdit : undefined}
             actions={isAdmin ? (g) => (
-              <div className="flex items-center gap-1">
-                <button onClick={() => openEdit(g)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600"><Pencil size={14} /></button>
-                <button onClick={() => setDeleteId(g.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
-              </div>
+              <button onClick={() => setDeleteId(g.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
             ) : undefined}
           />
         )
@@ -322,10 +339,33 @@ export default function GemachPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1">שכונה</label>
-              <input
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-right"
-                value={form.neighborhood} onChange={e => setForm(p => ({ ...p, neighborhood: e.target.value }))}
-              />
+              {addingNeighborhood ? (
+                <div className="flex gap-1.5">
+                  <input
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-right"
+                    value={newNeighborhoodText}
+                    onChange={e => setNewNeighborhoodText(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleAddNeighborhood()}
+                    autoFocus
+                    placeholder="שם שכונה חדשה"
+                  />
+                  <button onClick={handleAddNeighborhood} className="px-3 py-1.5 bg-[#B06B3A] text-white rounded-lg text-xs font-semibold whitespace-nowrap">הוסף</button>
+                  <button onClick={() => { setAddingNeighborhood(false); setNewNeighborhoodText(''); }} className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs">×</button>
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <select
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm flex-1"
+                    value={form.neighborhood} onChange={e => setForm(p => ({ ...p, neighborhood: e.target.value }))}
+                  >
+                    <option value="">-- בחר שכונה --</option>
+                    {neighborhoods.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  {isAdmin && (
+                    <button onClick={() => setAddingNeighborhood(true)} className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-blue-600 hover:bg-blue-50 whitespace-nowrap">+ חדשה</button>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1">שעות פעילות</label>

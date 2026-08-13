@@ -11,6 +11,7 @@ import { useMapSync } from '../contexts/MapSyncContext';
 import type { business, KosherCertificate, KosherLevel, City, KashrutUpdate } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
+import AddressGeocodeField from '../components/AddressGeocodeField';
 import ExcelImportModal from '../components/ExcelImportModal';
 import { exportToExcel } from '../utils/excel';
 import { Plus, Pencil, Trash2, Upload, Download, ShieldCheck, EyeOff, ImagePlus, Star, X, MapPin, Square, CheckSquare, AlertTriangle, ArrowUpCircle } from 'lucide-react';
@@ -322,6 +323,7 @@ export default function BusinessesPage() {
   const [addingNeighborhood,  setAddingNeighborhood]  = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
   const [cityName, setCityName] = useState('');
+  const [cityCoords, setCityCoords] = useState<{ lat?: number; lon?: number }>({});
 
   // Map modal
   const [mapModalOpen, setMapModalOpen] = useState(false);
@@ -371,6 +373,7 @@ export default function BusinessesPage() {
       const d = snap.data() as City | undefined;
       setNeighborhoods((d?.neighborhoods ?? []).sort(new Intl.Collator('he').compare));
       setCityName(d?.name ?? '');
+      setCityCoords({ lat: d?.latitude, lon: d?.longitude });
     });
   }, [cityId]);
 
@@ -739,23 +742,16 @@ export default function BusinessesPage() {
         <DataTable
           data={data} columns={columns} searchKeys={['name', 'category', 'neighborhood', 'address']}
           onRowClick={row => canEdit(row) ? openEdit(row) : undefined}
-          actions={row => canEdit(row) ? (
-            <div className="flex items-center gap-1">
-              <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600">
-                <Pencil size={14} />
-              </button>
-              {canManageKash && (
-                <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ) : null}
+          actions={canManageKash ? (row => canEdit(row) ? (
+            <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
+              <Trash2 size={14} />
+            </button>
+          ) : null) : undefined}
         />
       )}
 
       {/* ── Edit / Add modal ── */}
-      <Modal open={modalOpen} title={modalTitle} onClose={() => setModalOpen(false)}>
+      <Modal open={modalOpen} title={modalTitle} size="xl" onClose={() => setModalOpen(false)}>
         <div className="space-y-4">
 
           {/* Ops view: read-only business name chip (no editing of the business name itself) */}
@@ -796,7 +792,17 @@ export default function BusinessesPage() {
                   </div>
                 )}
               </Field>
-              <Field label="כתובת" colSpan><input value={form.address} onChange={f('address')} className={inp} /></Field>
+              <Field label="כתובת" colSpan>
+                <AddressGeocodeField
+                  value={form.address}
+                  onChange={v => setForm(p => ({ ...p, address: v }))}
+                  onPick={r => setForm(p => ({ ...p, latitude: r.latitude, longitude: r.longitude }))}
+                  cityName={cityName}
+                  cityLat={cityCoords.lat}
+                  cityLon={cityCoords.lon}
+                  inputClassName={inp}
+                />
+              </Field>
 
               {/* Location with map picker */}
               <div className="col-span-2">

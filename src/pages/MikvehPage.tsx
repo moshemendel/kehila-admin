@@ -10,10 +10,11 @@ import { useMapSync } from '../contexts/MapSyncContext';
 import type { Mikveh, MikvehType, HoursBlock, City } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
+import AddressGeocodeField from '../components/AddressGeocodeField';
 import ExcelImportModal from '../components/ExcelImportModal';
 import HoursScheduleEditor from '../components/HoursScheduleEditor';
 import { exportToExcel } from '../utils/excel';
-import { Plus, Pencil, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
+import { Plus, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
@@ -83,6 +84,7 @@ export default function MikvehPage() {
 
   // Neighborhood dropdown state
   const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
+  const [city, setCity] = useState<City | null>(null);
   const [addingNeighborhood, setAddingNeighborhood] = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
 
@@ -109,6 +111,7 @@ export default function MikvehPage() {
     getDoc(doc(db, 'cities', cityId)).then(snap => {
       const d = snap.data() as City | undefined;
       setNeighborhoods((d?.neighborhoods ?? []).sort(new Intl.Collator('he').compare));
+      setCity(d ?? null);
     });
   }, [cityId]);
 
@@ -269,7 +272,6 @@ export default function MikvehPage() {
           onRowClick={openEdit}
           actions={row => (
             <div className="flex items-center gap-1">
-              <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600"><Pencil size={14} /></button>
               <button onClick={() => handleDuplicate(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="שכפל"><Copy size={14} /></button>
               <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
             </div>
@@ -278,7 +280,7 @@ export default function MikvehPage() {
       )}
 
       {/* Edit / Add modal */}
-      <Modal open={modalOpen} title={editing ? 'עריכת מקווה' : 'הוספת מקווה'} onClose={() => setModalOpen(false)}>
+      <Modal open={modalOpen} title={editing ? 'עריכת מקווה' : 'הוספת מקווה'} size="xl" onClose={() => setModalOpen(false)}>
         <div className="grid grid-cols-2 gap-4">
           {/* Name */}
           <Field label="שם *" colSpan><input value={form.name} onChange={f('name')} className={inp} /></Field>
@@ -317,7 +319,17 @@ export default function MikvehPage() {
           </Field>
 
           {/* Address */}
-          <Field label="כתובת" colSpan><input value={form.address} onChange={f('address')} className={inp} /></Field>
+          <Field label="כתובת" colSpan>
+            <AddressGeocodeField
+              value={form.address}
+              onChange={v => setForm(p => ({ ...p, address: v }))}
+              onPick={r => setForm(p => ({ ...p, latitude: r.latitude, longitude: r.longitude }))}
+              cityName={city?.name}
+              cityLat={city?.latitude}
+              cityLon={city?.longitude}
+              inputClassName={inp}
+            />
+          </Field>
 
           {/* Phone | Requires Appointment */}
           <Field label="טלפון (קו ישיר)"><input value={form.phone} onChange={f('phone')} type="tel" className={inp} /></Field>

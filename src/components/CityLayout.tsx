@@ -10,7 +10,7 @@ import type { City, UserRole } from '../types';
 import {
   Building2, Droplets, UtensilsCrossed, CalendarDays,
   Users, LayoutDashboard, Map, LogOut, Store, Shield, Gift,
-  BarChart2, Activity, Bell, Settings,
+  BarChart2, Activity, Bell, Settings, Flag,
 } from 'lucide-react';
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
@@ -24,6 +24,7 @@ const TABS = [
   { sub: 'events',       label: 'אירועים',  icon: CalendarDays,    allowedRoles: ['super_admin','city_admin','dev','event_manager']  },
   { sub: 'eruv',         label: 'עירוב',    icon: Shield,          allowedRoles: ['super_admin','city_admin','dev','eruv_manager']   },
   { sub: 'gemach',       label: 'גמ"ח',     icon: Gift,            allowedRoles: ['super_admin','city_admin','dev']                  },
+  { sub: 'reports',      label: 'דיווחים',   icon: Flag,            allowedRoles: ['super_admin','city_admin','dev','gabbai','business_manager','kosher_manager','mikveh_manager','event_manager'] },
   { sub: 'users',        label: 'משתמשים',  icon: Users,           allowedRoles: ['super_admin','city_admin','dev']                 },
   { sub: 'settings',     label: 'הגדרות עיר', icon: Settings,      allowedRoles: ['super_admin','city_admin','dev']                 },
 ] as const;

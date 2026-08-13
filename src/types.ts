@@ -79,7 +79,10 @@ export interface PrayerTimeSlot {
   anchor?: ZmanimAnchor;
   offsetMin?: number;     // minutes after anchor (negative = before)
   proportional?: boolean; // if true, offsetMin is in sha'ot zmaniyot / 60 units
-  days?: number[];        // 1=Sun … 6=Fri (7=Shabbat only in shabbat schedule)
+  days?: number[];
+  /** Specific dates "YYYY-MM-DD"; when non-empty the slot happens only on those
+   *  and `days` is ignored. See kehila-app/src/types/index.ts for rationale. */
+  dates?: string[];        // 1=Sun … 6=Fri (7=Shabbat only in shabbat schedule)
   notes?: string | null;
 }
 
@@ -87,6 +90,9 @@ export interface WeeklySchedule {
   shacharit: PrayerTimeSlot[];
   mincha:    PrayerTimeSlot[];
   maariv:    PrayerTimeSlot[];
+  /** Selichot minyanim — optional; see kehila-app/src/types/index.ts for why
+   *  these are ordinary weekday slots rather than a seasonal structure. */
+  selichot?: PrayerTimeSlot[];
   notes?: string;
 }
 
@@ -121,6 +127,9 @@ export interface SynagogueAnnouncement {
 }
 
 export interface Synagogue {
+  /** Which custom decides when this shul's selichot begin — re-derived yearly.
+   *  See kehila-app/src/types/index.ts. */
+  selichotCustom?: 'sephardi' | 'ashkenazi';
   id: string;
   cityId: string;
   name: string;
@@ -282,4 +291,33 @@ export interface PendingCommunityEvent {
   location?: string;
   organizer?: string;
   isAlert: boolean;
+}
+
+// ── Content reports — users flagging wrong info on a public listing ──────────
+// Mirrors kehila-app/src/types/index.ts — keep the two in sync.
+
+export type ReportEntityType = 'synagogue' | 'business' | 'mikveh' | 'event' | 'gemach';
+
+export type ReportReason =
+  | 'wrong_hours'
+  | 'wrong_contact'
+  | 'wrong_location'
+  | 'closed'
+  | 'wrong_details'
+  | 'other';
+
+export interface ContentReport {
+  id: string;
+  cityId: string;
+  entityType: ReportEntityType;
+  entityId: string;
+  entityName: string;
+  reason: ReportReason;
+  details?: string;
+  userId: string;
+  userName?: string;
+  status: 'open' | 'resolved' | 'dismissed';
+  handledBy?: string;
+  handledAt?: unknown;
+  createdAt?: { seconds: number } | null;
 }

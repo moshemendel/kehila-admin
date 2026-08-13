@@ -8,6 +8,7 @@ import type {
   WeeklySchedule, ShabbatSchedule, Shiur, SynagogueAnnouncement, SynagogueEventCategory,
   NusachOption,
 } from '../types';
+import AddressGeocodeField from '../components/AddressGeocodeField';
 import Modal from '../components/Modal';
 import { ArrowRight, Plus, Trash2, Save, Pencil, MapPin } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
@@ -35,6 +36,7 @@ const PRAYER_TYPES: { key: keyof WeeklySchedule & string; label: string; color: 
   { key: 'shacharit', label: 'שחרית', color: 'text-orange-600 bg-orange-50 border-orange-200' },
   { key: 'mincha',    label: 'מנחה',  color: 'text-blue-600 bg-blue-50 border-blue-200' },
   { key: 'maariv',   label: 'ערבית', color: 'text-indigo-600 bg-indigo-50 border-indigo-200' },
+  { key: 'selichot', label: 'סליחות', color: 'text-amber-700 bg-amber-50 border-amber-200' },
 ];
 
 const SHABBAT_TYPES: { key: keyof ShabbatSchedule & string; label: string; color: string }[] = [
@@ -455,6 +457,8 @@ export default function SynagogueDetailPage() {
   const [addingNusach, setAddingNusach] = useState(false);
   const [newNusachLabel, setNewNusachLabel] = useState('');
   const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
+  const [cityName, setCityName] = useState('');
+  const [cityCoords, setCityCoords] = useState<{ lat?: number; lon?: number }>({});
   const [addingNeighborhood, setAddingNeighborhood] = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
 
@@ -470,7 +474,7 @@ export default function SynagogueDetailPage() {
   });
 
   // Prayer schedules
-  const [weekly, setWeekly] = useState<WeeklySchedule>({ shacharit: [], mincha: [], maariv: [] });
+  const [weekly, setWeekly] = useState<WeeklySchedule>({ shacharit: [], mincha: [], maariv: [], selichot: [] });
   const [weeklyNotes, setWeeklyNotes] = useState('');
   const [shabbat, setShabbatSchedule] = useState<ShabbatSchedule>({});
   const [shabbatNotes, setShabbatNotes] = useState('');
@@ -494,6 +498,8 @@ export default function SynagogueDetailPage() {
       if (opts?.length) setNusachOptions(opts);
       const hoods = data?.neighborhoods as string[] | undefined;
       if (hoods?.length) setNeighborhoods(hoods);
+      setCityName((data?.name as string) ?? '');
+      setCityCoords({ lat: data?.latitude as number | undefined, lon: data?.longitude as number | undefined });
     });
   }, [cityId]);
 
@@ -564,7 +570,7 @@ export default function SynagogueDetailPage() {
         latitude: String(data.latitude ?? ''), longitude: String(data.longitude ?? ''),
       });
       const ws = data.weeklySchedule ?? { shacharit: [], mincha: [], maariv: [] };
-      setWeekly({ shacharit: ws.shacharit ?? [], mincha: ws.mincha ?? [], maariv: ws.maariv ?? [] });
+      setWeekly({ shacharit: ws.shacharit ?? [], mincha: ws.mincha ?? [], maariv: ws.maariv ?? [], selichot: ws.selichot ?? [] });
       setWeeklyNotes(ws.notes ?? '');
       const ss = data.shabbatSchedule ?? {};
       setShabbatSchedule({ minchaFriday: ss.minchaFriday ?? [], shacharit: ss.shacharit ?? [], mincha: ss.mincha ?? [], maariv: ss.maariv ?? [] });
@@ -791,7 +797,15 @@ export default function SynagogueDetailPage() {
 
                 {/* Address */}
                 <InfoField label="כתובת" colSpan>
-                  <input value={info.addressHe} onChange={e => setInfo(p => ({ ...p, addressHe: e.target.value }))} className={inp} />
+                  <AddressGeocodeField
+                    value={info.addressHe}
+                    onChange={v => setInfo(p => ({ ...p, addressHe: v }))}
+                    onPick={r => setInfo(p => ({ ...p, latitude: String(r.latitude), longitude: String(r.longitude) }))}
+                    cityName={cityName}
+                    cityLat={cityCoords.lat}
+                    cityLon={cityCoords.lon}
+                    inputClassName={inp}
+                  />
                 </InfoField>
 
                 {/* Rabbi — name + phone on same row */}

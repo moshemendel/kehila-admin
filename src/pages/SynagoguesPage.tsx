@@ -9,13 +9,15 @@ import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import ExcelImportModal from '../components/ExcelImportModal';
 import { exportToExcel } from '../utils/excel';
-import { Plus, Pencil, Trash2, Upload, Download } from 'lucide-react';
+import { Plus, Trash2, Upload, Download } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
 
-const EMPTY: Omit<Synagogue, 'id' | 'cityId' | 'weeklySchedule' | 'updatedAt'> = {
-  name: '', nusach: [], neighborhood: '', address: { he: '' },
-  phone: '', rabbi: '', rabbiPhone: '', gabbaiName: '', gabbaiPhone: '', notes: '',
-  latitude: undefined, longitude: undefined,
+// The create modal deliberately collects only enough to identify the synagogue.
+// Everything else (contacts, gabbaim, coordinates, prayer times, shiurim,
+// announcements) is edited on SynagogueDetailPage, which is a superset of these
+// fields — duplicating them here meant two places to keep in sync.
+const EMPTY = {
+  name: '', nusach: [] as string[], neighborhood: '', address: { he: '' },
 };
 
 export default function SynagoguesPage() {
@@ -33,19 +35,33 @@ export default function SynagoguesPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [editing, setEditing] = useState<Synagogue | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [nusachOptions, setNusachOptions] = useState<NusachOption[]>([]);
   const [addingNusach, setAddingNusach] = useState(false);
   const [newNusachLabel, setNewNusachLabel] = useState('');
+  const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
+  const [addingNeighborhood, setAddingNeighborhood] = useState(false);
+  const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
 
   const loadNusach = async () => {
     if (!cityId) return;
     const snap = await getDoc(doc(db, 'cities', cityId));
     const opts = snap.data()?.nusachOptions as NusachOption[] | undefined;
     if (opts?.length) setNusachOptions(opts);
+    const hoods = snap.data()?.neighborhoods as string[] | undefined;
+    setNeighborhoods((hoods ?? []).sort((a, b) => a.localeCompare(b, 'he')));
+  };
+
+  const handleAddNeighborhood = async () => {
+    const text = newNeighborhoodText.trim();
+    if (!text || !cityId || neighborhoods.includes(text)) return;
+    await updateDoc(doc(db, 'cities', cityId), { neighborhoods: arrayUnion(text) });
+    setNeighborhoods(prev => [...prev, text].sort((a, b) => a.localeCompare(b, 'he')));
+    setForm(p => ({ ...p, neighborhood: text }));
+    setNewNeighborhoodText('');
+    setAddingNeighborhood(false);
   };
 
   const handleAddNusach = async () => {
@@ -102,33 +118,24 @@ export default function SynagoguesPage() {
     document.getElementById(`syn-row-${selectedId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [selectedId]);
 
-  const openAdd = () => { setEditing(null); setForm(EMPTY); setModalOpen(true); };
-  const openEdit = (row: Synagogue) => {
-    setEditing(row);
-    setForm({ name: row.name, nusach: toArr(row.nusach), neighborhood: row.neighborhood ?? '',
-      address: row.address ?? { he: '' }, phone: row.phone ?? '', rabbi: row.rabbi ?? '',
-      rabbiPhone: row.rabbiPhone ?? '', gabbaiName: row.gabbaiName ?? '',
-      gabbaiPhone: row.gabbaiPhone ?? '', notes: row.notes ?? '',
-      latitude: row.latitude, longitude: row.longitude,
-    });
-    setModalOpen(true);
-  };
+  const openAdd = () => { setForm(EMPTY); setModalOpen(true); };
 
   const handleSave = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
     try {
-      const id = editing?.id ?? nanoid();
+      const id = nanoid();
       await setDoc(doc(db, 'synagogues', id), {
-        ...editing,
         ...form,
         id,
         cityId,
-        weeklySchedule: editing?.weeklySchedule ?? { shacharit: [], mincha: [], maariv: [] },
+        weeklySchedule: { shacharit: [], mincha: [], maariv: [] },
         updatedAt: serverTimestamp(),
-      }, { merge: true });
+      });
       setModalOpen(false);
-      load();
+      // Straight into the full editor rather than back to the table — the new
+      // record still needs contacts, coordinates and prayer times.
+      navigate(`/cities/${cityId}/synagogues/${id}`);
     } catch (e: any) {
       alert(e?.message ?? 'שגיאה בשמירה');
     } finally {
@@ -182,7 +189,6 @@ export default function SynagoguesPage() {
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }));
 
-  const canEdit = (row: Synagogue) => isAdmin || mySynIds.includes(row.id);
 
   return (
     <div className="p-8" dir="rtl">
@@ -219,23 +225,16 @@ export default function SynagoguesPage() {
           onRowClick={row => { setSelectedId(row.id); navigate(`/cities/${cityId}/synagogues/${row.id}`); }}
           rowId={row => `syn-row-${row.id}`}
           highlightId={selectedId ?? undefined}
-          actions={row => canEdit(row) ? (
-            <div className="flex items-center gap-1">
-              <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
-                <Pencil size={14} />
-              </button>
-              {isAdmin && (
-                <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ) : null}
+          actions={isAdmin ? (row => (
+            <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
+              <Trash2 size={14} />
+            </button>
+          )) : undefined}
         />
       )}
 
       {/* Add / Edit modal */}
-      <Modal open={modalOpen} title={editing ? 'עריכת בית כנסת' : 'הוספת בית כנסת'} onClose={() => setModalOpen(false)}>
+      <Modal open={modalOpen} title="הוספת בית כנסת" onClose={() => setModalOpen(false)}>
         <div className="grid grid-cols-2 gap-4">
           <Field label="שם *" colSpan>
             <input value={form.name} onChange={f('name')} placeholder="שם בית הכנסת" className={inp} />
@@ -274,40 +273,42 @@ export default function SynagoguesPage() {
             {nusachOptions.length === 0 && <p className="text-xs text-slate-400">טוען נוסחים מהמסד...</p>}
           </Field>
           <Field label="שכונה">
-            <input value={form.neighborhood} onChange={f('neighborhood')} className={inp} />
+            {addingNeighborhood ? (
+              <div className="flex gap-1.5">
+                <input
+                  value={newNeighborhoodText}
+                  onChange={e => setNewNeighborhoodText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddNeighborhood()}
+                  autoFocus
+                  placeholder="שם שכונה חדשה"
+                  className={inp}
+                />
+                <button onClick={handleAddNeighborhood} className="px-3 py-1.5 bg-[#1B3A6B] text-white rounded-lg text-xs font-semibold">הוסף</button>
+                <button onClick={() => { setAddingNeighborhood(false); setNewNeighborhoodText(''); }} className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs">×</button>
+              </div>
+            ) : (
+              <div className="flex gap-1.5">
+                <select value={form.neighborhood} onChange={f('neighborhood')} className={`${inp} flex-1`}>
+                  <option value="">-- בחר שכונה --</option>
+                  {neighborhoods.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                {isAdmin && (
+                  <button onClick={() => setAddingNeighborhood(true)} className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-blue-600 hover:bg-blue-50 whitespace-nowrap">+ חדשה</button>
+                )}
+              </div>
+            )}
           </Field>
           <Field label="כתובת">
             <input value={form.address?.he ?? ''} onChange={e => setForm(p => ({ ...p, address: { ...p.address, he: e.target.value } }))} className={inp} />
           </Field>
-          <Field label="טלפון">
-            <input value={form.phone} onChange={f('phone')} type="tel" className={inp} />
-          </Field>
-          <Field label="שם הרב">
-            <input value={form.rabbi} onChange={f('rabbi')} className={inp} />
-          </Field>
-          <Field label="טלפון רב">
-            <input value={form.rabbiPhone} onChange={f('rabbiPhone')} type="tel" className={inp} />
-          </Field>
-          <Field label="שם גבאי">
-            <input value={form.gabbaiName} onChange={f('gabbaiName')} className={inp} />
-          </Field>
-          <Field label="טלפון גבאי">
-            <input value={form.gabbaiPhone} onChange={f('gabbaiPhone')} type="tel" className={inp} />
-          </Field>
-          <Field label="קו רוחב">
-            <input value={form.latitude ?? ''} onChange={e => setForm(p => ({ ...p, latitude: parseFloat(e.target.value) || undefined }))} type="number" step="any" className={inp} />
-          </Field>
-          <Field label="קו אורך">
-            <input value={form.longitude ?? ''} onChange={e => setForm(p => ({ ...p, longitude: parseFloat(e.target.value) || undefined }))} type="number" step="any" className={inp} />
-          </Field>
-          <Field label="הערות" colSpan>
-            <textarea value={form.notes} onChange={f('notes')} rows={3} className={`${inp} resize-none`} />
-          </Field>
+          <p className="col-span-2 text-xs text-slate-400 -mt-1">
+            שאר הפרטים — טלפונים, רב, גבאים, מיקום וזמני תפילה — נערכים בעמוד בית הכנסת, שייפתח מיד לאחר ההוספה.
+          </p>
         </div>
         <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
           <button onClick={handleSave} disabled={saving || !form.name.trim()}
             className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50 transition-colors">
-            {saving ? 'שומר...' : editing ? 'שמור שינויים' : 'הוסף'}
+            {saving ? 'שומר...' : 'הוסף והמשך לעריכה'}
           </button>
           <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">
             ביטול

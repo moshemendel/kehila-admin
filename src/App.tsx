@@ -19,6 +19,7 @@ import EventsPage from './pages/EventsPage';
 import UsersPage from './pages/UsersPage';
 import CitySettingsPage from './pages/CitySettingsPage';
 import EruvPage   from './pages/EruvPage';
+import ReportsPage             from './pages/ReportsPage';
 import GemachPage from './pages/GemachPage';
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -58,6 +59,7 @@ function AppRoutes() {
         <Route path="events"        element={<EventsPage />} />
         <Route path="eruv"          element={<EruvPage />} />
         <Route path="gemach"        element={<GemachPage />} />
+        <Route path="reports"       element={<ReportsPage />} />
         <Route path="users"         element={<UsersPage />} />
         <Route path="settings"      element={<CitySettingsPage />} />
         <Route path="stats"         element={<StatsPage />} />

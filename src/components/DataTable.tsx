@@ -94,7 +94,7 @@ export default function DataTable<T extends { id: string }>({
                   </span>
                 </th>
               ))}
-              {actions && <th className="text-right px-4 py-3 font-semibold text-slate-600 w-24">פעולות</th>}
+              {actions && <th className="text-right px-4 py-3 font-semibold text-slate-600 w-24">מחיקה</th>}
             </tr>
           </thead>
           <tbody>
