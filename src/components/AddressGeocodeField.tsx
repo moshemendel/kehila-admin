@@ -23,6 +23,13 @@ interface Props {
  *
  * The lookup only ever runs on an explicit button press — Nominatim's usage
  * policy forbids automated/per-keystroke querying (see utils/geocode.ts).
+ *
+ * Treat this as a shortcut, not the primary route. OpenStreetMap has no data
+ * for the pilot city's newer streets, so lookups there legitimately fail and
+ * the map pin (satellite view) is the path that always works. To see why a
+ * particular lookup failed, run `localStorage.geocodeDebug = '1'` in the
+ * browser console and press אתר again — every candidate is logged with its
+ * distance from the city centre and whether it was kept.
  */
 export default function AddressGeocodeField({
   value, onChange, onPick, cityName, cityLat, cityLon, inputClassName = '', disabled,
@@ -39,7 +46,10 @@ export default function AddressGeocodeField({
     try {
       const hits = await geocodeAddress(value, { cityName, latitude: cityLat, longitude: cityLon });
       if (hits.length === 0) {
-        setError('לא נמצאה כתובת תואמת. נסה לנסח אחרת או לבחור מהמפה.');
+        // Common in the pilot city rather than exceptional: newer streets are
+        // absent from OpenStreetMap entirely, so the map pin is the real answer
+        // and the message says so instead of implying a better phrasing exists.
+        setError('הכתובת לא נמצאה במאגר המפות. סמן/י את המיקום על המפה — בתצוגת לוויין רואים את הבניינים גם ברחובות חדשים.');
       } else if (hits.length === 1) {
         onPick(hits[0]);
         setResults(hits); // keep it visible so the user can confirm the match
