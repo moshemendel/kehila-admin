@@ -8,6 +8,7 @@ import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import { Plus, Pencil, Shield, Code2, Users, UserCog, ChevronDown, ChevronUp } from 'lucide-react';
 import { createUserWithRole } from '../utils/createUser';
+import { checkPassword, suggestPassword, MIN_LENGTH } from '../utils/passwordPolicy';
 
 // ─── Role metadata ────────────────────────────────────────────────────────────
 
@@ -64,6 +65,8 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState('');
 
+  const pwCheck = checkPassword(password, { name: displayName, email });
+
   const isSuperAdmin = currentUserRole === 'super_admin';
   const assignable = ASSIGNABLE_BY[currentUserRole] ?? ASSIGNABLE_BY.city_admin;
 
@@ -72,6 +75,10 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!email || !password || !displayName) return;
+    if (!pwCheck.ok) {
+      setError(pwCheck.error ?? `הסיסמה אינה עומדת בדרישות: ${pwCheck.rules.find(r => !r.met)?.label}`);
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -81,7 +88,7 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
     } catch (err: any) {
       setError(
         err.code === 'auth/email-already-in-use' ? 'כתובת אימייל כבר בשימוש'
-        : err.code === 'auth/weak-password'      ? 'הסיסמה חלשה מדי (מינימום 6 תווים)'
+        : err.code === 'auth/weak-password'      ? `הסיסמה חלשה מדי (מינימום ${MIN_LENGTH} תווים)`
         : `שגיאה: ${err.message}`
       );
     } finally {
@@ -101,8 +108,30 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
           <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className={inp} placeholder="user@example.com" />
         </div>
         <div>
-          <label className={lbl}>סיסמה זמנית *</label>
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} className={inp} placeholder="מינימום 6 תווים" />
+          <div className="flex items-center justify-between">
+            <label className={lbl}>סיסמה זמנית *</label>
+            <button type="button" onClick={() => setPassword(suggestPassword())}
+              className="text-xs font-semibold text-[#1B3A6B] hover:underline mb-1.5">
+              הצע סיסמה
+            </button>
+          </div>
+          <input type="text" value={password} onChange={e => setPassword(e.target.value)} required
+            minLength={MIN_LENGTH} autoComplete="off" className={inp}
+            placeholder={`מינימום ${MIN_LENGTH} תווים`} />
+          {/* Plain text, not type="password": the admin has to read this out to
+              the new manager, and a masked field they can't see is worse than a
+              value already visible on their own screen. */}
+          {password.length > 0 && (
+            <ul className="mt-2 space-y-0.5">
+              {pwCheck.rules.map(r => (
+                <li key={r.key} className={`text-xs flex items-center gap-1.5 ${r.met ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  <span>{r.met ? '✓' : '○'}</span>{r.label}
+                </li>
+              ))}
+              {pwCheck.error && <li className="text-xs text-red-600 flex items-center gap-1.5"><span>!</span>{pwCheck.error}</li>}
+            </ul>
+          )}
+          <p className="text-xs text-slate-400 mt-1.5">המשתמש יוכל לשנות את הסיסמה לאחר הכניסה הראשונה.</p>
         </div>
         <div className={isSuperAdmin ? 'grid grid-cols-2 gap-3' : ''}>
           <div>
@@ -125,7 +154,7 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
         {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2.5 rounded-xl border border-red-100">{error}</div>}
 
         <div className="flex gap-3 pt-2">
-          <button type="submit" disabled={saving || !email || !password || !displayName}
+          <button type="submit" disabled={saving || !email || !displayName || !pwCheck.ok}
             className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50">
             {saving ? 'יוצר משתמש...' : 'צור משתמש'}
           </button>
