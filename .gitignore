@@ -27,3 +27,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local API keys (Google Maps). .env.example documents what belongs here.
+.env
+.env.local

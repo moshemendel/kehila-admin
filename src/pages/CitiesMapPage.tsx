@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, getDocs, query, where, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { getCountFromServer } from 'firebase/firestore';
-import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,6 +12,7 @@ import type { City } from '../types';
 import Modal from '../components/Modal';
 import { nanoid } from '../utils/nanoid';
 import { Search, ArrowLeft, X, Plus, Pencil, Trash2, ExternalLink, MapPin } from 'lucide-react';
+import MapTiles from '../components/MapTiles';
 
 // ─── Sunrise azimuth & mountain angle (matches astral_times.py) ──────────────
 
@@ -359,10 +360,7 @@ export default function CitiesMapPage() {
 
       {/* ── Map ── */}
       <MapContainer center={center} zoom={8} className="h-full w-full" zoomControl={false}>
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        />
+        <MapTiles showToggle={false} />
         <MapController
           target={flyTarget}
           onReady={m => { mapRef.current = m; }}

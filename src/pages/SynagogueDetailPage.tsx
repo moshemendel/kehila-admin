@@ -11,11 +11,12 @@ import type {
 import AddressGeocodeField from '../components/AddressGeocodeField';
 import Modal from '../components/Modal';
 import { ArrowRight, Plus, Trash2, Save, Pencil, MapPin } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { useMapSync } from '../contexts/MapSyncContext';
 import { useAuth } from '../contexts/AuthContext';
 import { nanoid } from '../utils/nanoid';
+import MapTiles from '../components/MapTiles';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -431,7 +432,7 @@ function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: number | nul
   const center: [number, number] = (lat && lng) ? [lat, lng] : [31.7683, 35.2137];
   return (
     <MapContainer center={center} zoom={(lat && lng) ? 16 : 11} className="w-full h-full rounded-xl" zoomControl>
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='© OpenStreetMap' />
+      <MapTiles defaultSatellite />
       <MapClickHandler onPick={onPick} />
       {lat !== null && lng !== null && <Marker position={[lat, lng]} icon={PIN_ICON} />}
     </MapContainer>

@@ -16,11 +16,12 @@ import ExcelImportModal from '../components/ExcelImportModal';
 import { exportToExcel } from '../utils/excel';
 import { Plus, Pencil, Trash2, Upload, Download, ShieldCheck, EyeOff, ImagePlus, Star, X, MapPin, Square, CheckSquare, AlertTriangle, ArrowUpCircle } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { nanoid } from '../utils/nanoid';
 import ImageCropModal from '../components/ImageCropModal';
 import { sendPush } from '../utils/push';
+import MapTiles from '../components/MapTiles';
 
 // Admin-created certs never set certifierType (that field only exists on kehila-app's
 // richer type), so this is the name-based fallback kehila-app's own isLocalRabbanut
@@ -141,7 +142,7 @@ function MapClickHandler({ onPick }: { onPick: (lat: number, lng: number) => voi
 function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: number | null; onPick: (lat: number, lng: number) => void }) {
   return (
     <MapContainer center={lat !== null && lng !== null ? [lat, lng] : [31.5, 35.0]} zoom={lat !== null && lng !== null ? 15 : 10} style={{ height: '100%', width: '100%' }}>
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+      <MapTiles defaultSatellite />
       <MapClickHandler onPick={onPick} />
       {lat !== null && lng !== null && <Marker position={[lat, lng]} icon={PIN_ICON} />}
     </MapContainer>

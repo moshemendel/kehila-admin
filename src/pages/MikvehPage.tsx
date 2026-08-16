@@ -17,8 +17,9 @@ import { exportToExcel } from '../utils/excel';
 import { Plus, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
+import MapTiles from '../components/MapTiles';
 
 const TYPE_LABELS: Record<MikvehType, string> = { women: 'נשים', men: 'גברים', both: 'נשים וגברים' };
 
@@ -41,7 +42,7 @@ function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: number | nul
       zoom={lat !== null && lng !== null ? 15 : 10}
       style={{ height: '100%', width: '100%' }}
     >
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+      <MapTiles defaultSatellite />
       <MapClickHandler onPick={onPick} />
       {lat !== null && lng !== null && <Marker position={[lat, lng]} icon={PIN_ICON} />}
     </MapContainer>
