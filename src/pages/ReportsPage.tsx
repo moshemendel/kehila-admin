@@ -94,7 +94,7 @@ export default function ReportsPage() {
   const columns: Column<ContentReport>[] = [
     {
       key: 'entityName',
-      label: 'הפריט',
+      header: 'הפריט',
       render: r => {
         const href = entityHref(cityId, r);
         return (
@@ -114,19 +114,19 @@ export default function ReportsPage() {
         );
       },
     },
-    { key: 'reason',  label: 'הבעיה',  render: r => REASON_LABELS[r.reason] ?? r.reason },
+    { key: 'reason',  header: 'הבעיה',  render: r => REASON_LABELS[r.reason] ?? r.reason },
     {
       key: 'details',
-      label: 'פירוט',
+      header: 'פירוט',
       render: r => r.details
         ? <span className="text-slate-600">{r.details}</span>
         : <span className="text-slate-300">—</span>,
     },
-    { key: 'userName',  label: 'דיווח ע״י', render: r => r.userName || <span className="text-slate-400">אנונימי</span> },
-    { key: 'createdAt', label: 'תאריך',    render: r => fmtDate(r.createdAt) },
+    { key: 'userName',  header: 'דיווח ע״י', render: r => r.userName || <span className="text-slate-400">אנונימי</span> },
+    { key: 'createdAt', header: 'תאריך',    render: r => fmtDate(r.createdAt) },
     {
       key: 'status',
-      label: 'סטטוס',
+      header: 'סטטוס',
       render: r => (
         <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
           r.status === 'open'     ? 'bg-amber-50 text-amber-700'
