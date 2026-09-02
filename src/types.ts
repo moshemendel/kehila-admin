@@ -68,7 +68,27 @@ export interface City {
   elevation?: number; // meters above sea level — used for daily mountain-angle terrain scan
   nusachOptions?: NusachOption[];
   neighborhoods?: string[];
+  /**
+   * Which parts of the app this city runs. Mirrors src/utils/modules.ts in the
+   * mobile app: absent means live, so the document records only exceptions.
+   */
+  modules?: CityModules;
 }
+
+/**
+ * A city can hold a section back or not offer it at all, and those are
+ * different things — 'soon' keeps the entry point visible with an explanation,
+ * 'off' removes it from the tabs, the shortcuts, the More screen and search.
+ * Absent means live.
+ */
+export type ModuleKey =
+  | 'Synagogues' | 'PrayerTimes' | 'Zmanim' | 'Businesses' | 'Mikveh'
+  | 'Events' | 'Eruv' | 'Gemach' | 'Selichot'
+  | 'mikvehBooking' | 'zmanimSettings';
+
+export type ModuleState = 'live' | 'soon' | 'off';
+
+export type CityModules = Partial<Record<ModuleKey, ModuleState>>;
 
 export type NusachType = string[];
 

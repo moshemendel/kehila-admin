@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { City } from '../types';
+import type { City, CityModules } from '../types';
+import CityModulesEditor from '../components/CityModulesEditor';
 import { CityForm, calcMountainAngle, type FormState } from './CitiesMapPage';
 import { Check } from 'lucide-react';
 
@@ -19,6 +20,7 @@ export default function CitySettingsPage() {
   const [saved, setSaved]       = useState(false);
   const [maLoading, setMaLoading] = useState(false);
   const [maAngle, setMaAngle]     = useState<number | null>(null);
+  const [modules, setModules]     = useState<CityModules>({});
 
   useEffect(() => {
     if (!cityId) return;
@@ -31,6 +33,7 @@ export default function CitySettingsPage() {
           latitude: String(c.latitude), longitude: String(c.longitude),
           elevation: c.elevation != null ? String(c.elevation) : '',
         });
+        setModules(c.modules ?? {});
         if (c.latitude && c.longitude) {
           setMaLoading(true);
           calcMountainAngle(c.latitude, c.longitude, c.elevation ?? 0)
@@ -53,6 +56,10 @@ export default function CitySettingsPage() {
         latitude: parseFloat(form.latitude),
         longitude: parseFloat(form.longitude),
         ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
+        // Written whole rather than merged: the editor removes a key when a
+        // module goes back to 'live', and a merge would leave the old value
+        // behind.
+        modules,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -72,6 +79,10 @@ export default function CitySettingsPage() {
 
       <div className="bg-white border border-slate-200 rounded-2xl p-6">
         <CityForm form={form} setForm={setForm} maLoading={maLoading} maAngle={maAngle} />
+
+        <div className="pt-5 mt-5 border-t border-slate-100">
+          <CityModulesEditor value={modules} onChange={setModules} />
+        </div>
 
         <div className="flex items-center gap-3 pt-4 border-t border-slate-100 mt-4">
           <button
