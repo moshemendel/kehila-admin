@@ -81,10 +81,14 @@ export interface City {
  * 'off' removes it from the tabs, the shortcuts, the More screen and search.
  * Absent means live.
  */
-export type ModuleKey =
-  | 'Synagogues' | 'PrayerTimes' | 'Zmanim' | 'Businesses' | 'Mikveh'
-  | 'Events' | 'Eruv' | 'Gemach' | 'Selichot'
-  | 'mikvehBooking' | 'zmanimSettings';
+// Deliberately a plain string, not a union restated from the app.
+//
+// The app owns the list — a module is a screen, and only its source can say
+// which exist — and publishes it to config/modules, which the console renders
+// from. A union here would be a second copy that drifts, and the console would
+// then offer switches writing keys the app ignores: saved successfully, doing
+// nothing, with nothing to say so.
+export type ModuleKey = string;
 
 export type ModuleState = 'live' | 'soon' | 'off';
 

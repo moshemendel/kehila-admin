@@ -1,38 +1,34 @@
-import type { CityModules, ModuleKey, ModuleState } from '../types';
+import { useEffect, useState } from 'react';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import type { CityModules, ModuleState } from '../types';
 
 /**
  * Which parts of the app a city runs.
  *
  * The mobile app reads this straight off the city document — no build, no
  * release — so a second city can onboard with its gemach registry still empty
- * and its kashrut certificates unverified, without either decision leaking into
+ * and its kashrut certificates unverified, without either decision reaching
  * anyone else's city.
  *
- * Keys match the app's own module list in src/utils/modules.ts. Adding one
- * there means adding it here; there is no shared package between the two
- * projects, and a key that exists in only one place simply does nothing.
+ * THE LIST COMES FROM THE APP, not from here. A module is not a name, it is a
+ * screen: adding one to a document does not create it, so only the app's own
+ * source can say what exists. It publishes its catalogue to config/modules
+ * (scripts/sync-modules.mjs), and this renders whatever it finds there. Keeping
+ * a second copy here would mean a switch could be added that writes a key the
+ * app ignores — saved successfully, and doing nothing, with nothing to say so.
  */
-const SECTIONS: { key: ModuleKey; label: string; hint: string }[] = [
-  { key: 'Synagogues',  label: 'בתי כנסת',   hint: 'רשימת בתי הכנסת וזמני התפילות' },
-  { key: 'PrayerTimes', label: 'מניינים',     hint: 'לוח המניינים בעיר' },
-  { key: 'Zmanim',      label: 'זמנים',       hint: 'זמני היום' },
-  { key: 'Businesses',  label: 'כשרות',       hint: 'עסקים ותעודות כשרות' },
-  { key: 'Mikveh',      label: 'מקוואות',     hint: 'פרטי המקוואות ושעות' },
-  { key: 'Events',      label: 'אירועים',     hint: 'אירועים, שיעורים והודעות' },
-  { key: 'Eruv',        label: 'עירוב',       hint: 'מפת העירוב ועדכוני תקינות' },
-  { key: 'Gemach',      label: 'גמ"ח',        hint: 'רשימת הגמ"חים בעיר' },
-  { key: 'Selichot',    label: 'סליחות',      hint: 'זמני סליחות — מופיע בעונה בלבד' },
-];
-
-const FEATURES: { key: ModuleKey; label: string; hint: string }[] = [
-  { key: 'mikvehBooking',  label: 'קביעת תורים למקווה', hint: 'בתוך מדור המקוואות' },
-  { key: 'zmanimSettings', label: 'הגדרות זמנים',        hint: 'בחירת שיטת חישוב על ידי המשתמש' },
-];
+interface CatalogueEntry {
+  key: string;
+  kind: 'section' | 'feature';
+  label: string;
+  hint: string;
+}
 
 const STATES: { key: ModuleState; label: string; hint: string; on: string }[] = [
-  { key: 'live', label: 'פעיל', hint: 'עובד כרגיל',                    on: 'bg-green-600 text-white border-green-600' },
-  { key: 'soon', label: 'בקרוב', hint: 'נראה, עם מסך שמסביר',          on: 'bg-amber-500 text-white border-amber-500' },
-  { key: 'off',  label: 'כבוי',  hint: 'לא קיים — מוסר מכל המסכים',    on: 'bg-slate-600 text-white border-slate-600' },
+  { key: 'live', label: 'פעיל',  hint: 'עובד כרגיל',                 on: 'bg-green-600 text-white border-green-600' },
+  { key: 'soon', label: 'בקרוב', hint: 'נראה, עם מסך שמסביר',        on: 'bg-amber-500 text-white border-amber-500' },
+  { key: 'off',  label: 'כבוי',  hint: 'לא קיים — מוסר מכל המסכים',  on: 'bg-slate-600 text-white border-slate-600' },
 ];
 
 function Row({ label, hint, state, onChange }: {
@@ -67,16 +63,43 @@ export default function CityModulesEditor({ value, onChange }: {
   value: CityModules;
   onChange: (next: CityModules) => void;
 }) {
-  const stateOf = (k: ModuleKey): ModuleState => value[k] ?? 'live';
+  const [catalogue, setCatalogue] = useState<CatalogueEntry[] | null>(null);
+  const [failed, setFailed] = useState(false);
 
-  const set = (k: ModuleKey, s: ModuleState) => {
-    const next = { ...value };
+  useEffect(() => {
+    getDoc(doc(db, 'config', 'modules'))
+      .then((snap) => {
+        const list = snap.exists() ? (snap.data().modules as CatalogueEntry[]) : null;
+        if (list?.length) setCatalogue(list);
+        else setFailed(true);
+      })
+      .catch(() => setFailed(true));
+  }, []);
+
+  const stateOf = (k: string): ModuleState => value[k as keyof CityModules] ?? 'live';
+
+  const set = (k: string, s: ModuleState) => {
+    const next = { ...value } as Record<string, ModuleState>;
     // 'live' is the default, so it is stored as the absence of a key — the
     // document keeps only what differs from a plain city.
     if (s === 'live') delete next[k];
     else next[k] = s;
-    onChange(next);
+    onChange(next as CityModules);
   };
+
+  if (failed) {
+    return (
+      <div className="text-sm text-slate-500">
+        <h2 className="text-base font-bold text-slate-800 mb-1">מודולים</h2>
+        רשימת המודולים לא נמצאה. יש להריץ באפליקציה:
+        <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-xs">node scripts/sync-modules.mjs</code>
+      </div>
+    );
+  }
+  if (!catalogue) return <div className="text-sm text-slate-400">טוען מודולים...</div>;
+
+  const sections = catalogue.filter((m) => m.kind === 'section');
+  const features = catalogue.filter((m) => m.kind === 'feature');
 
   return (
     <div>
@@ -88,16 +111,20 @@ export default function CityModulesEditor({ value, onChange }: {
       </div>
 
       <div className="text-xs font-semibold text-slate-400 mb-1">מדורים</div>
-      {SECTIONS.map((m) => (
+      {sections.map((m) => (
         <Row key={m.key} label={m.label} hint={m.hint}
           state={stateOf(m.key)} onChange={(s) => set(m.key, s)} />
       ))}
 
-      <div className="text-xs font-semibold text-slate-400 mb-1 mt-5">אפשרויות בתוך מדור</div>
-      {FEATURES.map((m) => (
-        <Row key={m.key} label={m.label} hint={m.hint}
-          state={stateOf(m.key)} onChange={(s) => set(m.key, s)} />
-      ))}
+      {features.length > 0 && (
+        <>
+          <div className="text-xs font-semibold text-slate-400 mb-1 mt-5">אפשרויות בתוך מדור</div>
+          {features.map((m) => (
+            <Row key={m.key} label={m.label} hint={m.hint}
+              state={stateOf(m.key)} onChange={(s) => set(m.key, s)} />
+          ))}
+        </>
+      )}
     </div>
   );
 }
