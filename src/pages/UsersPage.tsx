@@ -8,44 +8,11 @@ import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import { Plus, Pencil, Shield, Code2, Users, UserCog, ChevronDown, ChevronUp } from 'lucide-react';
 import { createUserWithRole } from '../utils/createUser';
+import { useRoleCatalogue, chipClass } from '../utils/roleCatalogue';
 import { checkPassword, suggestPassword, MIN_LENGTH } from '../utils/passwordPolicy';
 
 // ─── Role metadata ────────────────────────────────────────────────────────────
 
-const ROLE_LABELS: Record<UserRole, string> = {
-  user:             'משתמש',
-  gabbai:           'גבאי',
-  business_manager: 'מנהל עסק',
-  kosher_manager:   'מנהל כשרות',
-  mikveh_manager:   'מנהל מקוואות',
-  event_manager:    'מנהל אירועים',
-  eruv_manager:     'מנהל עירוב',
-  city_admin:       'מנהל עיר',
-  dev:              'צוות פיתוח',
-  super_admin:      'מנהל על',
-};
-
-const ROLE_COLORS: Record<UserRole, string> = {
-  user:             'bg-slate-100 text-slate-500',
-  gabbai:           'bg-blue-50 text-blue-700',
-  business_manager: 'bg-green-50 text-green-700',
-  kosher_manager:   'bg-emerald-50 text-emerald-700',
-  mikveh_manager:   'bg-cyan-50 text-cyan-700',
-  event_manager:    'bg-orange-50 text-orange-700',
-  eruv_manager:     'bg-purple-50 text-purple-700',
-  city_admin:       'bg-red-50 text-red-700',
-  dev:              'bg-zinc-800 text-zinc-100',
-  super_admin:      'bg-yellow-50 text-yellow-700 font-bold',
-};
-
-// Roles a given actor can assign to others
-const ASSIGNABLE_BY: Record<string, UserRole[]> = {
-  super_admin: ['user', 'gabbai', 'business_manager', 'kosher_manager', 'mikveh_manager', 'event_manager', 'eruv_manager', 'city_admin', 'dev', 'super_admin'],
-  city_admin:       ['user', 'gabbai', 'business_manager', 'kosher_manager', 'mikveh_manager', 'event_manager', 'eruv_manager'],
-};
-
-// Roles that are hidden from admin (city manager) — only super_admin sees them
-const HIDDEN_FROM_ADMIN: UserRole[] = ['dev', 'super_admin'];
 
 // ─── Add-user form ────────────────────────────────────────────────────────────
 
@@ -68,7 +35,8 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
   const pwCheck = checkPassword(password, { name: displayName, email });
 
   const isSuperAdmin = currentUserRole === 'super_admin';
-  const assignable = ASSIGNABLE_BY[currentUserRole] ?? ASSIGNABLE_BY.city_admin;
+  const cat = useRoleCatalogue();
+  const assignable = cat.assignableBy(isSuperAdmin);
 
   useEffect(() => { if (open) { setEmail(''); setPassword(''); setName(''); setRole('gabbai'); setCityId(currentCityId); setError(''); } }, [open]);
 
@@ -137,7 +105,7 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
           <div>
             <label className={lbl}>תפקיד *</label>
             <select value={role} onChange={e => setRole(e.target.value as UserRole)} className={inp}>
-              {assignable.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+              {assignable.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
             </select>
           </div>
           {isSuperAdmin && (
@@ -167,18 +135,8 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
 
 // ─── Edit role modal ──────────────────────────────────────────────────────────
 
-// Priority for computing the single `role` field kept for auth checks (mirrors the app)
-const ROLE_PRIORITY: UserRole[] = [
-  'super_admin', 'dev', 'city_admin', 'event_manager',
-  'kosher_manager', 'mikveh_manager', 'eruv_manager', 'business_manager', 'gabbai', 'user',
-];
 
-function computePrimaryRole(roles: UserRole[]): UserRole {
-  for (const r of ROLE_PRIORITY) {
-    if (roles.includes(r)) return r;
-  }
-  return 'user';
-}
+type SubListState = { syn: boolean; rest: boolean };
 
 type RoleDraft = {
   roles: UserRole[];
@@ -186,11 +144,6 @@ type RoleDraft = {
   managedRestaurantIds: string[];
   cityId: string;
 };
-
-// Roles that require assigning specific managed items (mirrors the mobile app)
-const LIST_ROLES = new Set<UserRole>(['gabbai', 'business_manager']);
-
-type SubListState = { syn: boolean; rest: boolean };
 
 function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogues, businesses, cities }: {
   open: boolean;
@@ -205,8 +158,9 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
   const [draft, setDraft] = useState<RoleDraft>({ roles: ['user'], managedSynagogueIds: [], managedRestaurantIds: [], cityId: '' });
   const [subLists, setSubLists] = useState<SubListState>({ syn: false, rest: false });
   const [saving, setSaving] = useState(false);
-  const assignable = ASSIGNABLE_BY[currentUserRole] ?? ASSIGNABLE_BY.city_admin;
   const isSuperAdmin = currentUserRole === 'super_admin';
+  const cat = useRoleCatalogue();
+  const assignable = cat.assignableBy(isSuperAdmin);
 
   useEffect(() => {
     if (user) {
@@ -225,7 +179,7 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
   // drop the role (that orphans the assignment with no visible trace) — it just
   // toggles the section open/closed instead. Only removes the role once it's empty.
   const toggleRole = (role: UserRole) => {
-    const isListRole = LIST_ROLES.has(role);
+    const isListRole = !!cat.byKey(role)?.manages;
     const wasOn = draft.roles.includes(role);
 
     if (isListRole && wasOn) {
@@ -275,7 +229,7 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
       const homeCityId = draft.roles.includes('city_admin')
         ? draft.cityId
         : (user.homeCityId ?? user.cityId);
-      await onSave(user.uid, draft, computePrimaryRole(draft.roles), homeCityId);
+      await onSave(user.uid, draft, cat.computePrimaryRole(draft.roles), homeCityId);
       onClose();
     } catch (e: any) {
       alert(e?.message ?? 'שגיאה בשמירה');
@@ -299,11 +253,11 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
           <div className="mb-5">
             <label className={lbl}>תפקידים (ניתן לבחור מספר)</label>
             <div className="flex flex-wrap gap-2">
-              {assignable.map(r => {
+              {assignable.map(({ key: r, label, manages }) => {
                 const active     = draft.roles.includes(r);
-                const isListRole = LIST_ROLES.has(r);
-                const itemCount  = r === 'gabbai' ? draft.managedSynagogueIds.length
-                  : r === 'business_manager' ? draft.managedRestaurantIds.length : 0;
+                const isListRole = !!manages;
+                const itemCount  = manages === 'synagogues' ? draft.managedSynagogueIds.length
+                  : manages === 'businesses' ? draft.managedRestaurantIds.length : 0;
                 const hasItems   = itemCount > 0;
 
                 // Three states for list-roles: inactive / active-no-items (border only) / active-with-items (filled)
@@ -318,7 +272,7 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
                         : borderOnly ? 'border-2 border-[#1B3A6B] text-[#1B3A6B] bg-[#1B3A6B]/10'
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                       }`}>
-                      {ROLE_LABELS[r]}
+                      {label}
                     </button>
                     {isListRole && active && hasItems && (
                       <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 border border-white">
@@ -329,7 +283,7 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
                 );
               })}
             </div>
-            {!draft.roles.some(r => assignable.includes(r)) && (
+            {!draft.roles.some(r => assignable.some(a => a.key === r)) && (
               <p className="text-xs text-amber-600 mt-1.5">
                 אף אחד מהתפקידים הנוכחיים אינו ברשימה — שמירה תוריד את ההרשאות.
               </p>
@@ -414,6 +368,7 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
 type TabKey = 'managers' | 'regular' | 'dev';
 
 export default function UsersPage() {
+  const cat = useRoleCatalogue();
   const { appUser } = useAuth();
   const isSuperAdmin = appUser?.role === 'super_admin';
   const isAdmin      = appUser?.role === 'city_admin' || isSuperAdmin;
@@ -477,7 +432,10 @@ export default function UsersPage() {
   const devUsers      = allUsers.filter(u => u.role === 'dev' || u.role === 'super_admin');
   const visibleUsers  = isSuperAdmin
     ? allUsers.filter(u => u.role !== 'dev' && u.role !== 'super_admin')
-    : allUsers.filter(u => !HIDDEN_FROM_ADMIN.includes(u.role));
+    // Global-scope roles (super_admin, dev) are not about this city, so a
+    // city_admin never sees them. Asked of the catalogue rather than listed,
+    // so a future cross-city role is hidden the day it is added.
+    : allUsers.filter(u => cat.byKey(u.role)?.scope !== 'global');
 
   const managerUsers  = visibleUsers.filter(u => u.role !== 'user');
   const regularUsers  = visibleUsers.filter(u => u.role === 'user');
@@ -492,7 +450,7 @@ export default function UsersPage() {
       render: r => (
         <div className="flex flex-wrap gap-1">
           {(r.roles ?? [r.role]).map(role => (
-            <span key={role} className={`text-xs px-2.5 py-1 rounded-full font-semibold ${ROLE_COLORS[role]}`}>{ROLE_LABELS[role]}</span>
+            <span key={role} className={`text-xs px-2.5 py-1 rounded-full font-semibold ${chipClass(cat.byKey(role))}`}>{cat.labelOf(role)}</span>
           ))}
         </div>
       ),

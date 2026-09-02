@@ -33,9 +33,14 @@ export interface PendingGemach {
   status: 'pending' | 'approved' | 'rejected';
 }
 
-export type UserRole =
-  | 'user' | 'gabbai' | 'business_manager' | 'kosher_manager' | 'mikveh_manager'
-  | 'event_manager' | 'eruv_manager' | 'city_admin' | 'dev' | 'super_admin';
+/**
+ * A role key. Deliberately not a union here: the authoritative list lives in the
+ * app repo (src/utils/roleCatalogue.json, which owns firestore.rules with it)
+ * and reaches this console at runtime via config/roles — see
+ * utils/roleCatalogue.ts. A union in this file could only ever be a second copy,
+ * and the second copy is what went stale and locked content_admin out.
+ */
+export type UserRole = string;
 
 export interface AppUser {
   uid: string;

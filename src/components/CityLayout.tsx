@@ -5,6 +5,7 @@ import { signOut } from 'firebase/auth';
 import { auth, db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useCityContext } from '../contexts/CityContext';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 import { MapSyncProvider } from '../contexts/MapSyncContext';
 import type { City, UserRole } from '../types';
 import {
@@ -15,18 +16,38 @@ import {
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 
+/**
+ * Who sees which section, asked of the role catalogue rather than listed.
+ *
+ * Each tab used to carry an allowedRoles array naming every role that could
+ * open it, which meant adding a role was eleven edits in this file alone — and
+ * when content_admin arrived, it got none of them. Signing in as the deputy a
+ * city_admin had just appointed produced a console with every section missing.
+ *
+ * Two questions replace the arrays:
+ *
+ *   access 'authority'  accounts, the city record, the overview — the things a
+ *                       content_admin deliberately does NOT get. Mirrors
+ *                       isAdminOf() in firestore.rules.
+ *   access 'content'    everything the app publishes. Mirrors managesContentIn(),
+ *                       so a content_admin sees exactly what they can save.
+ *
+ * plus `specialist`, the narrow role that gets this one section and nothing
+ * else — a gabbai and their shuls, an eruv_manager and the eruv.
+ */
 const TABS = [
-  { sub: '',             label: 'סקירה',    icon: LayoutDashboard, allowedRoles: ['super_admin','city_admin','dev']                },
-  { sub: 'synagogues',   label: 'בתי כנסת', icon: Building2,       allowedRoles: ['super_admin','city_admin','dev','gabbai']       },
-  { sub: 'mikvaot',      label: 'מקואות',   icon: Droplets,        allowedRoles: ['super_admin','city_admin','dev','mikveh_manager'] },
-  { sub: 'kosher',       label: 'כשרות',    icon: UtensilsCrossed, allowedRoles: ['super_admin','city_admin','dev','kosher_manager'] },
-  { sub: 'businesses',   label: 'בתי עסק',  icon: Store,           allowedRoles: ['super_admin','city_admin','dev','business_manager'] },
-  { sub: 'events',       label: 'אירועים',  icon: CalendarDays,    allowedRoles: ['super_admin','city_admin','dev','event_manager']  },
-  { sub: 'eruv',         label: 'עירוב',    icon: Shield,          allowedRoles: ['super_admin','city_admin','dev','eruv_manager']   },
-  { sub: 'gemach',       label: 'גמ"ח',     icon: Gift,            allowedRoles: ['super_admin','city_admin','dev']                  },
-  { sub: 'reports',      label: 'דיווחים',   icon: Flag,            allowedRoles: ['super_admin','city_admin','dev','gabbai','business_manager','kosher_manager','mikveh_manager','event_manager'] },
-  { sub: 'users',        label: 'משתמשים',  icon: Users,           allowedRoles: ['super_admin','city_admin','dev']                 },
-  { sub: 'settings',     label: 'הגדרות עיר', icon: Settings,      allowedRoles: ['super_admin','city_admin','dev']                 },
+  { sub: '',           label: 'סקירה',      icon: LayoutDashboard, access: 'authority' },
+  { sub: 'synagogues', label: 'בתי כנסת',   icon: Building2,       access: 'content', specialist: ['gabbai'] },
+  { sub: 'mikvaot',    label: 'מקואות',     icon: Droplets,        access: 'content', specialist: ['mikveh_manager'] },
+  { sub: 'kosher',     label: 'כשרות',      icon: UtensilsCrossed, access: 'content', specialist: ['kosher_manager'] },
+  { sub: 'businesses', label: 'בתי עסק',    icon: Store,           access: 'content', specialist: ['business_manager'] },
+  { sub: 'events',     label: 'אירועים',    icon: CalendarDays,    access: 'content', specialist: ['event_manager'] },
+  { sub: 'eruv',       label: 'עירוב',      icon: Shield,          access: 'content', specialist: ['eruv_manager'] },
+  { sub: 'gemach',     label: 'גמ"ח',       icon: Gift,            access: 'content' },
+  { sub: 'reports',    label: 'דיווחים',     icon: Flag,            access: 'content',
+    specialist: ['gabbai','business_manager','kosher_manager','mikveh_manager','event_manager'] },
+  { sub: 'users',      label: 'משתמשים',    icon: Users,           access: 'authority' },
+  { sub: 'settings',   label: 'הגדרות עיר', icon: Settings,        access: 'authority' },
 ] as const;
 
 // Insights links — kept inside the city shell so navigating to them never exits the city context
@@ -35,7 +56,7 @@ const INSIGHT_LINKS = [
   { sub: 'analytics',     label: 'אנליטיקס',   icon: Activity  },
   { sub: 'notifications', label: 'התראות',      icon: Bell      },
 ] as const;
-const INSIGHT_ROLES = ['super_admin', 'city_admin', 'dev'];
+// Insights are city-wide numbers, not content — authority only.
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -51,7 +72,16 @@ export default function CityLayout() {
   // A "dev" scoped to one city (has a homeCityId) behaves like city_admin — only truly
   // unscoped super_admin/dev accounts can browse other cities from the map.
   const canPickCity = role === 'super_admin' || (role === 'dev' && !appUser?.homeCityId);
-  const showInsights = !!role && INSIGHT_ROLES.includes(role);
+  // A manager can hold several roles at once (e.g. gabbai + kosher_manager) — every
+  // question below is asked of the whole set, not just the single primary role.
+  const roles = (appUser?.roles ?? (role ? [role] : [])) as UserRole[];
+  const cat = useRoleCatalogue();
+  const has = (flag: 'authority' | 'content') =>
+    roles.some(r => cat.byKey(r)?.[flag]);
+  const hasAuthority = has('authority');
+  const hasContent   = has('content');
+  // Insights are city-wide numbers, not published content — authority only.
+  const showInsights = hasAuthority;
 
   useEffect(() => {
     if (!cityId) return;
@@ -80,10 +110,9 @@ export default function CityLayout() {
 
   const cityName = selectedCityName ?? city?.name ?? '';
 
-  // A manager can hold several roles at once (e.g. gabbai + kosher_manager) — show every
-  // tab that any of their roles unlocks, not just the tab for their single primary role.
-  const roles = (appUser?.roles ?? (role ? [role] : [])) as UserRole[];
-  const matchedTabs = TABS.filter(t => roles.some(r => (t.allowedRoles as readonly string[]).includes(r)));
+  const matchedTabs = TABS.filter(t =>
+    (t.access === 'authority' ? hasAuthority : hasContent) ||
+    roles.some(r => ((t as { specialist?: readonly string[] }).specialist ?? []).includes(r)));
   const visibleTabs = matchedTabs.length > 0 ? matchedTabs : [TABS[0]];
 
   const handleLogout = async () => {

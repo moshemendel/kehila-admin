@@ -14,7 +14,7 @@ import type { CityModules, ModuleState } from '../types';
  * THE LIST COMES FROM THE APP, not from here. A module is not a name, it is a
  * screen: adding one to a document does not create it, so only the app's own
  * source can say what exists. It publishes its catalogue to config/modules
- * (scripts/sync-modules.mjs), and this renders whatever it finds there. Keeping
+ * (scripts/sync-catalogue.mjs), and this renders whatever it finds there. Keeping
  * a second copy here would mean a switch could be added that writes a key the
  * app ignores — saved successfully, and doing nothing, with nothing to say so.
  */
@@ -92,7 +92,7 @@ export default function CityModulesEditor({ value, onChange }: {
       <div className="text-sm text-slate-500">
         <h2 className="text-base font-bold text-slate-800 mb-1">מודולים</h2>
         רשימת המודולים לא נמצאה. יש להריץ באפליקציה:
-        <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-xs">node scripts/sync-modules.mjs</code>
+        <code className="mx-1 px-1.5 py-0.5 bg-slate-100 rounded text-xs">node scripts/sync-catalogue.mjs</code>
       </div>
     );
   }

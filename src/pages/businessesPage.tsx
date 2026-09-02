@@ -14,6 +14,7 @@ import Modal from '../components/Modal';
 import AddressGeocodeField from '../components/AddressGeocodeField';
 import ExcelImportModal from '../components/ExcelImportModal';
 import { exportToExcel } from '../utils/excel';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 import { Plus, Pencil, Trash2, Upload, Download, ShieldCheck, EyeOff, ImagePlus, Star, X, MapPin, Square, CheckSquare, AlertTriangle, ArrowUpCircle } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
@@ -273,11 +274,16 @@ export default function BusinessesPage() {
   const isOpsView      = location.pathname.endsWith('/businesses');
   const isKashrutView  = !isOpsView;
 
-  const role           = appUser?.role ?? '';
+  const cat            = useRoleCatalogue();
   // A business manager can hold other roles too — check the full roles array, not just the primary role.
   const roles          = appUser?.roles ?? (appUser?.role ? [appUser.role] : []);
   const isBizManager   = roles.includes('business_manager');
-  const isAdmin        = role === 'city_admin' || role === 'super_admin' || role === 'dev';
+  // Content authority, not account authority — a content_admin manages what the
+  // app publishes, and businesses are exactly that. Named the three roles that
+  // existed when it was written and so missed content_admin entirely; asked of
+  // the catalogue it mirrors managesContentIn() in firestore.rules, which is
+  // what actually decides whether the save goes through.
+  const isAdmin        = roles.some(r => cat.byKey(r)?.content);
   const myBizIds       = appUser?.managedRestaurantIds ?? [];
 
   // On kashrut tab: show kashrut fields + cert CRUD + add/delete
