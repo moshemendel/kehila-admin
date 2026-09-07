@@ -27,3 +27,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local API keys — a real Google Maps key, and the App Check reCAPTCHA site key.
+# This file was untracked AND unignored here, so `git add -A` would have
+# committed the live key.
+.env
+.env.local
