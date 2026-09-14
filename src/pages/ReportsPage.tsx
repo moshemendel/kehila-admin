@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import type { ContentReport, ReportEntityType, ReportReason } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 import { CheckCircle2, XCircle, Flag, ExternalLink } from 'lucide-react';
 
 const REASON_LABELS: Record<ReportReason, string> = {
@@ -36,6 +37,7 @@ export default function ReportsPage() {
   const { cityId = '' } = useParams<{ cityId: string }>();
   const navigate = useNavigate();
   const { appUser } = useAuth();
+  const cat = useRoleCatalogue();
 
   const [data, setData]       = useState<ContentReport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,28 +46,49 @@ export default function ReportsPage() {
   // Scoped by role. Firestore rules are NOT filters: a manager who can't read
   // every report in the city would get permission-denied for the whole query,
   // so each role asks only for the subset the rules allow.
-  // Mirrors fetchReportsFor in kehila-app/src/services/reports.ts — keep in sync.
+  // Mirrors buildReportQueries in kehila-app/src/services/reports.ts — keep in
+  // sync. (It drifted once already: this file predates synagogue_manager,
+  // mashgiach and mikveh_attendant, which the app side gained without this
+  // one — content_admin, synagogue_manager, mashgiach and mikveh_attendant
+  // were all getting zero reports here.)
   const load = async () => {
     if (!cityId || !appUser) return;
     setLoading(true);
     const roles: string[] = appUser.roles ?? (appUser.role ? [appUser.role] : []);
-    const isAdmin = roles.some(r => ['city_admin', 'super_admin', 'dev'].includes(r));
+    // Content authority — mirrors managesContentIn() — not the three-role list
+    // that left content_admin out.
+    const isAdmin = roles.some(r => cat.byKey(r)?.content);
     const col = collection(db, 'contentReports');
     const queries = [];
 
     if (isAdmin) {
       queries.push(query(col, where('cityId', '==', cityId)));
     } else {
+      // synagogue_manager covers every synagogue in the city (managesSynagogue in rules)
+      if (roles.includes('synagogue_manager'))
+        queries.push(query(col, where('cityId', '==', cityId), where('entityType', '==', 'synagogue')));
+      // gabbai → only reports about synagogues they manage. Skipped when
+      // synagogue_manager already covers the whole city above.
       const synIds = (appUser.managedSynagogueIds ?? []).slice(0, 30);
-      if (roles.includes('gabbai') && synIds.length)
+      if (roles.includes('gabbai') && !roles.includes('synagogue_manager') && synIds.length)
         queries.push(query(col, where('cityId', '==', cityId), where('entityType', '==', 'synagogue'), where('entityId', 'in', synIds)));
       const bizIds = (appUser.managedRestaurantIds ?? []).slice(0, 30);
       if (roles.includes('business_manager') && bizIds.length)
         queries.push(query(col, where('cityId', '==', cityId), where('entityType', '==', 'business'), where('entityId', 'in', bizIds)));
       if (roles.includes('kosher_manager'))
         queries.push(query(col, where('cityId', '==', cityId), where('entityType', '==', 'business')));
+      // mashgiach → only the shops assigned to them (supervisesBusiness in
+      // rules). Skipped when kosher_manager already covers the whole city.
+      const supIds = (appUser.supervisedBusinessIds ?? []).slice(0, 30);
+      if (roles.includes('mashgiach') && !roles.includes('kosher_manager') && supIds.length)
+        queries.push(query(col, where('cityId', '==', cityId), where('entityType', '==', 'business'), where('entityId', 'in', supIds)));
       if (roles.includes('mikveh_manager'))
         queries.push(query(col, where('cityId', '==', cityId), where('entityType', '==', 'mikveh')));
+      // mikveh_attendant → only the mikvaot assigned to them (attendsMikveh in
+      // rules). Skipped when mikveh_manager already covers the whole city.
+      const mikIds = (appUser.managedMikvehIds ?? []).slice(0, 30);
+      if (roles.includes('mikveh_attendant') && !roles.includes('mikveh_manager') && mikIds.length)
+        queries.push(query(col, where('cityId', '==', cityId), where('entityType', '==', 'mikveh'), where('entityId', 'in', mikIds)));
       if (roles.includes('event_manager'))
         queries.push(query(col, where('cityId', '==', cityId), where('entityType', '==', 'event')));
     }
