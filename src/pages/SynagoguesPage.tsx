@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../firebase';
 import { useMapSync } from '../contexts/MapSyncContext';
 import { useAuth } from '../contexts/AuthContext';
-import type { Synagogue, NusachOption } from '../types';
+import type { Synagogue, NusachOption, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import ExcelImportModal from '../components/ExcelImportModal';
@@ -18,7 +18,7 @@ import { useRoleCatalogue } from '../utils/roleCatalogue';
 // announcements) is edited on SynagogueDetailPage, which is a superset of these
 // fields — duplicating them here meant two places to keep in sync.
 const EMPTY = {
-  name: '', nusach: [] as string[], neighborhood: '', address: { he: '' },
+  name: '', nusach: [] as string[], neighborhood: '', areaId: '', address: { he: '' },
 };
 
 export default function SynagoguesPage() {
@@ -51,6 +51,10 @@ export default function SynagoguesPage() {
   const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
   const [addingNeighborhood, setAddingNeighborhood] = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
+  // Areas — a regional council's settlements, or a plain city's own one (in
+  // which case this whole layer stays hidden below — the "golden rule").
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaFilter, setAreaFilter] = useState('');
 
   const loadNusach = async () => {
     if (!cityId) return;
@@ -59,6 +63,13 @@ export default function SynagoguesPage() {
     if (opts?.length) setNusachOptions(opts);
     const hoods = snap.data()?.neighborhoods as string[] | undefined;
     setNeighborhoods((hoods ?? []).sort((a, b) => a.localeCompare(b, 'he')));
+  };
+
+  const loadAreas = async () => {
+    if (!cityId) return;
+    const snap = await getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId)));
+    setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Area).sort((a, b) => a.name.localeCompare(b.name, 'he')));
+    setAreaFilter('');
   };
 
   const handleAddNeighborhood = async () => {
@@ -117,7 +128,7 @@ export default function SynagoguesPage() {
     setLoading(false);
   };
 
-  useEffect(() => { load(); loadNusach(); }, [cityId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); loadNusach(); loadAreas(); }, [cityId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Map marker click → scroll to matching row and highlight it
   useEffect(() => {
@@ -183,11 +194,17 @@ export default function SynagoguesPage() {
 
   const firstGabbai = (r: Synagogue) => r.gabbaim?.[0]?.name || r.gabbaiName || '—';
   const firstGabbaiPhone = (r: Synagogue) => r.gabbaim?.[0]?.phone || r.gabbaiPhone || '—';
+  const areaName = (id?: string) => areas.find(a => a.id === id)?.name ?? '—';
+
+  // Filtered by area BEFORE reaching DataTable, the same coarser cut used on
+  // BusinessesPage — its own search box is free-text, not a dropdown filter.
+  const filteredData = areaFilter ? data.filter(r => r.areaId === areaFilter) : data;
 
   const columns: Column<Synagogue>[] = [
     { key: 'name',         header: 'שם',       sortable: true },
     { key: 'nusach',       header: 'נוסח',      render: r => nusachDisplay(r.nusach ?? []) },
     { key: 'neighborhood', header: 'שכונה',     sortable: true },
+    ...(areas.length > 1 ? [{ key: 'areaId', header: 'יישוב', render: (r: Synagogue) => areaName(r.areaId) } as Column<Synagogue>] : []),
     { key: 'address',      header: 'כתובת',     render: r => r.address?.he ?? '—' },
     { key: 'gabbaiName',   header: 'גבאי',      render: firstGabbai },
     { key: 'gabbaiPhone',  header: 'טלפון גבאי', render: firstGabbaiPhone },
@@ -222,11 +239,23 @@ export default function SynagoguesPage() {
         )}
       </div>
 
+      {/* Area filter — hidden for a plain single-area city */}
+      {areas.length > 1 && (
+        <div className="flex items-center gap-2 mb-3">
+          <label className="text-xs font-semibold text-slate-500">יישוב:</label>
+          <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white">
+            <option value="">כל הישובים</option>
+            {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-16 text-slate-400">טוען...</div>
       ) : (
         <DataTable
-          data={data}
+          data={filteredData}
           columns={columns}
           searchKeys={['name', 'neighborhood', 'rabbi']}
           onRowClick={row => { setSelectedId(row.id); navigate(`/cities/${cityId}/synagogues/${row.id}`); }}
@@ -306,6 +335,14 @@ export default function SynagoguesPage() {
               </div>
             )}
           </Field>
+          {areas.length > 1 && (
+            <Field label="יישוב">
+              <select value={form.areaId} onChange={f('areaId')} className={inp}>
+                <option value="">-- בחר יישוב --</option>
+                {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+          )}
           <Field label="כתובת">
             <input value={form.address?.he ?? ''} onChange={e => setForm(p => ({ ...p, address: { ...p.address, he: e.target.value } }))} className={inp} />
           </Field>

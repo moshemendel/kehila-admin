@@ -1,12 +1,12 @@
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, query, where, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
 import { db } from '../firebase';
 import type {
   Synagogue, PrayerTimeSlot, ZmanimAnchor,
   WeeklySchedule, ShabbatSchedule, Shiur, SynagogueAnnouncement, SynagogueEventCategory,
-  NusachOption,
+  NusachOption, Area,
 } from '../types';
 import AddressGeocodeField from '../components/AddressGeocodeField';
 import Modal from '../components/Modal';
@@ -469,13 +469,16 @@ export default function SynagogueDetailPage() {
   const [cityCoords, setCityCoords] = useState<{ lat?: number; lon?: number }>({});
   const [addingNeighborhood, setAddingNeighborhood] = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
+  // Areas — a regional council's settlements, or a plain city's own one (in
+  // which case the field below stays hidden — the "golden rule").
+  const [areas, setAreas] = useState<Area[]>([]);
 
   const [mapModalOpen, setMapModalOpen] = useState(false);
   const [pendingPick, setPendingPick] = useState<{ lat: number; lng: number } | null>(null);
 
   // Info form state
   const [info, setInfo] = useState({
-    name: '', nusach: [] as string[], neighborhood: '',
+    name: '', nusach: [] as string[], neighborhood: '', areaId: '',
     addressHe: '', rabbi: '', rabbiPhone: '',
     gabbaim: [] as { name: string; phone: string }[], notes: '',
     latitude: '', longitude: '',
@@ -508,6 +511,9 @@ export default function SynagogueDetailPage() {
       if (hoods?.length) setNeighborhoods(hoods);
       setCityName((data?.name as string) ?? '');
       setCityCoords({ lat: data?.latitude as number | undefined, lon: data?.longitude as number | undefined });
+    });
+    getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId))).then(snap => {
+      setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Area).sort((a, b) => a.name.localeCompare(b.name, 'he')));
     });
   }, [cityId]);
 
@@ -569,6 +575,7 @@ export default function SynagogueDetailPage() {
       }
       setInfo({
         name: data.name, nusach: toArr(data.nusach), neighborhood: data.neighborhood ?? '',
+        areaId: data.areaId ?? '',
         addressHe: data.address?.he ?? '', rabbi: data.rabbi ?? '',
         rabbiPhone: data.rabbiPhone ?? '',
         gabbaim: data.gabbaim?.length
@@ -598,6 +605,7 @@ export default function SynagogueDetailPage() {
       const firstGabbai = info.gabbaim[0];
       await updateDoc(doc(db, 'synagogues', id), {
         name: info.name, nusach: info.nusach, neighborhood: info.neighborhood,
+        areaId: info.areaId,
         address: { he: info.addressHe },
         rabbi: info.rabbi, rabbiPhone: info.rabbiPhone,
         gabbaim: info.gabbaim,
@@ -802,6 +810,21 @@ export default function SynagogueDetailPage() {
                     </div>
                   )}
                 </div>
+
+                {/* Area — hidden for a plain single-area city, the "golden rule" */}
+                {areas.length > 1 && (
+                  <div>
+                    <label className={lbl}>יישוב</label>
+                    <select
+                      value={info.areaId}
+                      onChange={e => setInfo(p => ({ ...p, areaId: e.target.value }))}
+                      className={inp}
+                    >
+                      <option value="">— בחר יישוב —</option>
+                      {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                )}
 
                 {/* Address */}
                 <InfoField label="כתובת" colSpan>

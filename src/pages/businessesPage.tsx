@@ -8,7 +8,7 @@ import { db, storage } from '../firebase';
 import { useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMapSync } from '../contexts/MapSyncContext';
-import type { business, KosherCertificate, KosherLevel, City, KashrutUpdate } from '../types';
+import type { business, KosherCertificate, KosherLevel, City, KashrutUpdate, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import AddressGeocodeField from '../components/AddressGeocodeField';
@@ -170,7 +170,7 @@ const DAYS_HE = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי
 const DAYS_EN = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 
 const EMPTY_FORM = {
-  name: '', category: 'בשרי', neighborhood: '', address: '',
+  name: '', category: 'בשרי', neighborhood: '', areaId: '', address: '',
   phone: '', website: '', description: '', isHidden: false,
   latitude:  undefined as number | undefined,
   longitude: undefined as number | undefined,
@@ -332,6 +332,12 @@ export default function BusinessesPage() {
   const [cityName, setCityName] = useState('');
   const [cityCoords, setCityCoords] = useState<{ lat?: number; lon?: number }>({});
 
+  // Areas — a regional council's settlements, or a plain city's own one (in
+  // which case this whole layer stays hidden, everywhere it's used below —
+  // the "golden rule" from kehila-app's own area-migration work).
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaFilter, setAreaFilter] = useState('');
+
   // Map modal
   const [mapModalOpen, setMapModalOpen] = useState(false);
   const [pendingPick,  setPendingPick]  = useState<{ lat: number; lng: number } | null>(null);
@@ -382,6 +388,11 @@ export default function BusinessesPage() {
       setCityName(d?.name ?? '');
       setCityCoords({ lat: d?.latitude, lon: d?.longitude });
     });
+    getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId))).then(snap => {
+      setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Area)
+        .sort((a, b) => a.name.localeCompare(b.name, 'he')));
+    });
+    setAreaFilter('');
   }, [cityId]);
 
   const handleAddNeighborhood = async () => {
@@ -419,6 +430,7 @@ export default function BusinessesPage() {
     setPendingId(row.id);
     setForm({
       name: row.name, category: row.category, neighborhood: row.neighborhood ?? '',
+      areaId: row.areaId ?? '',
       address: row.address ?? '', phone: row.phone ?? '', website: row.website ?? '',
       description: row.description ?? '', isHidden: row.isHidden ?? false,
       latitude: row.latitude, longitude: row.longitude,
@@ -530,6 +542,7 @@ export default function BusinessesPage() {
         ...editing,
         ...(canManageKash ? {
           name: form.name, category: form.category, neighborhood: form.neighborhood,
+          areaId: form.areaId || deleteField(),
           address: form.address,
           latitude:  form.latitude  ?? deleteField(),
           longitude: form.longitude ?? deleteField(),
@@ -666,10 +679,19 @@ export default function BusinessesPage() {
 
   // ── Table columns ───────────────────────────────────────────────────────────
 
+  const areaName = (id?: string) => areas.find(a => a.id === id)?.name ?? '—';
+
+  // Filtered by area BEFORE reaching DataTable — its own search box is
+  // free-text over field values, not a dropdown filter, so this is a
+  // separate, coarser cut applied first. Hidden entirely for a plain
+  // single-area city — nothing to filter by.
+  const filteredData = areaFilter ? data.filter(r => r.areaId === areaFilter) : data;
+
   const columns: Column<business>[] = [
     { key: 'name',     header: 'שם',       sortable: true },
     { key: 'category', header: 'קטגוריה' },
     { key: 'neighborhood', header: 'שכונה', sortable: true },
+    ...(areas.length > 1 ? [{ key: 'areaId', header: 'יישוב', render: (r: business) => areaName(r.areaId) } as Column<business>] : []),
     { key: 'address',  header: 'כתובת' },
     {
       key: 'kosherCertificates', header: 'כשרות',
@@ -737,6 +759,18 @@ export default function BusinessesPage() {
         )}
       </div>
 
+      {/* Area filter — hidden for a plain single-area city */}
+      {areas.length > 1 && (
+        <div className="flex items-center gap-2 mb-3">
+          <label className="text-xs font-semibold text-slate-500">יישוב:</label>
+          <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white">
+            <option value="">כל הישובים</option>
+            {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Table */}
       {loading ? (
         <div className="text-center py-16 text-slate-400">טוען...</div>
@@ -747,7 +781,7 @@ export default function BusinessesPage() {
         </div>
       ) : (
         <DataTable
-          data={data} columns={columns} searchKeys={['name', 'category', 'neighborhood', 'address']}
+          data={filteredData} columns={columns} searchKeys={['name', 'category', 'neighborhood', 'address']}
           onRowClick={row => canEdit(row) ? openEdit(row) : undefined}
           actionsHeader="מחיקה"
           actions={canManageKash ? (row => canEdit(row) ? (
@@ -800,6 +834,14 @@ export default function BusinessesPage() {
                   </div>
                 )}
               </Field>
+              {areas.length > 1 && (
+                <Field label="יישוב">
+                  <select value={form.areaId} onChange={f('areaId')} className={inp}>
+                    <option value="">-- בחר יישוב --</option>
+                    {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </Field>
+              )}
               <Field label="כתובת" colSpan>
                 <AddressGeocodeField
                   value={form.address}

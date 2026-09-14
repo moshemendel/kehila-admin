@@ -167,6 +167,9 @@ export interface Synagogue {
   selichotCustom?: 'sephardi' | 'ashkenazi';
   id: string;
   cityId: string;
+  /** Which of the tenant's areas this shul is in — a regional council's
+   *  settlement. Mirrors kehila-app's Synagogue.areaId. */
+  areaId?: string;
   name: string;
   nusach: NusachType;
   neighborhood?: string;
@@ -271,6 +274,9 @@ export interface KashrutUpdate {
 export interface business {
   id: string;
   cityId: string;
+  /** Which of the tenant's areas this business is in. Mirrors kehila-app's
+   *  Business.areaId. */
+  areaId?: string;
   name: string;
   category: string;
   categories?: string[];
