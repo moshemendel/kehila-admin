@@ -4,6 +4,7 @@ import type { UserRole } from '../types';
 import {
   type Catalogue, type RoleEntry, type AssignmentField, type RoleDraft, type CityItems,
 } from '../utils/roleLogic';
+import Modal from './Modal';
 
 /**
  * The one roles picker, for creating an account and for editing one.
@@ -56,6 +57,11 @@ export default function RolesEditor({ cat, draft, onChange, actorRoles, items }:
   items: CityItems;
 }) {
   const [openLists, setOpenLists] = useState<Partial<Record<AssignmentField, boolean>>>({});
+  // The role pending confirmation before its removal actually applies — see
+  // toggleRole. A styled Modal, not window.confirm(): every other destructive
+  // action in this app (delete synagogue, delete gemach, …) confirms this way,
+  // and a native browser dialog was the one thing here that didn't match.
+  const [pendingRemoval, setPendingRemoval] = useState<RoleEntry | null>(null);
 
   const grantable   = cat.grantableBy(actorRoles).filter((r) => r.key !== 'user');
   const grantableKs = new Set(grantable.map((r) => r.key));
@@ -87,14 +93,17 @@ export default function RolesEditor({ cat, draft, onChange, actorRoles, items }:
     // later would silently restore an assignment (a mikveh, say) nobody
     // meant to still associate with this account.
     if (wasOn && entry.field && draft[entry.field].length > 0) {
-      const count = draft[entry.field].length;
-      const noun = entry.manages ? LIST_TITLE[entry.manages] : entry.label;
-      if (!window.confirm(`הסרת התפקיד "${entry.label}" תבטל גם את השיוך ל-${count} ${noun}. להמשיך?`)) return;
-      onChange({ ...draft, roles: draft.roles.filter((r) => r !== entry.key), [entry.field]: [] });
+      setPendingRemoval(entry);
       return;
     }
     onChange({ ...draft, roles: wasOn ? draft.roles.filter((r) => r !== entry.key) : [...draft.roles, entry.key] });
     if (entry.field) setOpenLists((o) => ({ ...o, [entry.field!]: !wasOn }));
+  };
+
+  const confirmRemoval = () => {
+    if (!pendingRemoval?.field) return;
+    onChange({ ...draft, roles: draft.roles.filter((r) => r !== pendingRemoval.key), [pendingRemoval.field]: [] });
+    setPendingRemoval(null);
   };
 
   const toggleItem = (field: AssignmentField, id: string) => {
@@ -201,6 +210,32 @@ export default function RolesEditor({ cat, draft, onChange, actorRoles, items }:
           </div>
         );
       })}
+
+      {/* Confirm before a role removal that also clears its assignment —
+          styled to match every other destructive confirm in this app
+          (delete synagogue, delete gemach, …), not a native browser dialog. */}
+      <Modal open={!!pendingRemoval} title="הסרת תפקיד" onClose={() => setPendingRemoval(null)} size="md">
+        {pendingRemoval && (
+          <>
+            <p className="text-sm text-slate-600 mb-6">
+              הסרת התפקיד "{pendingRemoval.label}" תבטל גם את השיוך ל-
+              {pendingRemoval.field ? draft[pendingRemoval.field].length : 0}{' '}
+              {pendingRemoval.manages ? LIST_TITLE[pendingRemoval.manages] : ''}.
+              ניתן למנות מחדש בהמשך, אך יהיה צורך לבחור את השיוך שוב.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={confirmRemoval}
+                className="flex-1 bg-red-500 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-red-600">
+                הסר תפקיד
+              </button>
+              <button onClick={() => setPendingRemoval(null)}
+                className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">
+                ביטול
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
