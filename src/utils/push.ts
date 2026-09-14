@@ -20,6 +20,13 @@ interface SendOptions {
   sentBy: string;
   auto?: boolean;
   data?: Record<string, unknown>; // extra payload — e.g. { screen: 'Eruv' }
+  /**
+   * Narrows the send to devices whose owner's homeAreaId is one of these —
+   * a regional council's settlement(s), typically. A device with no
+   * homeAreaId on record is skipped when this is set, rather than guessed
+   * at. Omit (or leave undefined) to send city-wide, as before.
+   */
+  areaIds?: string[] | null;
 }
 
 interface ExpoTicket {
@@ -35,7 +42,7 @@ interface ExpoTicket {
  * Stale tokens (DeviceNotRegistered) are removed from Firestore automatically.
  */
 export async function sendPush(opts: SendOptions): Promise<number> {
-  const { cityId, cityName, title, body, channel, roles = null, sentBy, auto = false, data } = opts;
+  const { cityId, cityName, title, body, channel, roles = null, sentBy, auto = false, data, areaIds = null } = opts;
 
   const col  = collection(db, 'pushTokens');
   const snap = cityId === 'all'
@@ -49,6 +56,7 @@ export async function sendPush(opts: SendOptions): Promise<number> {
       const singleRole = data.role as string;
       const allRoles   = (data.roles as string[] | undefined) ?? [singleRole];
       if (channel === 'general' && singleRole === 'guest') return false;
+      if (areaIds && !areaIds.includes(data.homeAreaId)) return false;
       return !roles || allRoles.some(r => roles.includes(r));
     })
     .map(d => ({ docId: d.id, token: d.data().token as string }))
@@ -119,22 +127,32 @@ export async function sendPush(opts: SendOptions): Promise<number> {
   return okCount;
 }
 
-/** Builds and sends the standard eruv status push for a city. */
+/**
+ * Builds and sends the standard eruv status push for one eruv. `label` and
+ * `areaIds` come from that eruv's own EruvStatus document — on a tenant with
+ * only one eruv, label is normally unset and areaIds covers the whole city,
+ * so this behaves exactly as it did before those fields existed. On a
+ * regional council with several, passing them is what keeps a settlement's
+ * eruv going down from paging every resident of the other 21.
+ */
 export async function sendEruvStatusPush(
   cityId: string,
   cityName: string,
   status: 'valid' | 'invalid' | 'unknown',
   sentBy: string,
+  areaIds?: string[] | null,
+  label?: string | null,
 ): Promise<number> {
   if (status === 'unknown') return 0;
 
+  const name = label || cityName;
   const title = status === 'valid'
-    ? `✅ עירוב ${cityName}`
-    : `⚠️ עירוב ${cityName}`;
+    ? `✅ עירוב ${name}`
+    : `⚠️ עירוב ${name}`;
 
   const body = status === 'valid'
     ? 'העירוב כשר — מותר לשאת ברשות הרבים'
     : 'העירוב פסול — אין לשאת ברשות הרבים';
 
-  return sendPush({ cityId, cityName, title, body, channel: 'eruv', sentBy, auto: true, data: { screen: 'Eruv' } });
+  return sendPush({ cityId, cityName, title, body, channel: 'eruv', sentBy, auto: true, data: { screen: 'Eruv' }, areaIds });
 }

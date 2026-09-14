@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  doc, getDoc, setDoc, collection, query, where,
+  doc, getDoc, setDoc, addDoc, getDocs, collection, query, where,
   onSnapshot, updateDoc, serverTimestamp, orderBy,
 } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -27,6 +27,7 @@ interface EruvCoord { lat: number; lng: number; }
 interface EruvReport {
   id: string;
   cityId: string;
+  eruvId?: string;
   userId: string;
   userDisplayName?: string;
   type: 'breach' | 'question';
@@ -38,6 +39,23 @@ interface EruvReport {
   resolvedAt?: any;
   createdAt: any;
 }
+
+// One physical eruv. Most cities have exactly one; a regional council can
+// have several (one per settlement, or per settlement-group sharing one
+// boundary) — see src/types/index.ts's EruvStatus comment in the mobile app
+// for the full reasoning, this mirrors it.
+interface EruvStatusDoc {
+  id: string;
+  cityId: string;
+  areaIds: string[];
+  label?: string;
+  status: EruvStatusValue;
+  notes?: string;
+  updatedAt?: any;
+  updatedBy?: string;
+}
+
+interface AreaOption { id: string; name: string; }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -116,6 +134,23 @@ export default function EruvPage() {
   const [reports,   setReports]   = useState<EruvReport[]>([]);
   const [reportTab, setReportTab] = useState<'open' | 'resolved'>('open');
 
+  // Settlement selector — most cities have exactly one eruv and this whole
+  // layer is invisible for them (activeEruv just becomes eruvs[0]). A
+  // regional council can have several.
+  const [eruvs,        setEruvs]        = useState<EruvStatusDoc[]>([]);
+  const [activeEruvId, setActiveEruvId] = useState<string | null>(null);
+  const [areas,        setAreas]        = useState<AreaOption[]>([]);
+  const [addingEruv,   setAddingEruv]   = useState(false);
+  const activeEruv = useMemo(() => eruvs.find(e => e.id === activeEruvId) ?? null, [eruvs, activeEruvId]);
+  const coveredAreaIds = useMemo(() => new Set(eruvs.flatMap(e => e.areaIds ?? [])), [eruvs]);
+  const uncoveredAreas = useMemo(() => areas.filter(a => !coveredAreaIds.has(a.id)), [areas, coveredAreaIds]);
+  function eruvLabel(e: EruvStatusDoc | null): string {
+    if (!e) return '';
+    if (e.label) return e.label;
+    const names = e.areaIds.map(id => areas.find(a => a.id === id)?.name).filter(Boolean);
+    return names.join(' + ') || 'עירוב';
+  }
+
   const activePoints = polygons[activePolygonIdx] ?? [];
 
   const updateActivePolygon = useCallback((fn: (pts: EruvCoord[]) => EruvCoord[]) => {
@@ -134,24 +169,58 @@ export default function EruvPage() {
     });
   }, [cityId]);
 
-  // Load eruv status + polygon
+  // Load this city's areas — for the "add a settlement" picker and for
+  // resolving a label-less eruv's display name from its areaIds.
   useEffect(() => {
     if (!cityId) return;
-    getDoc(doc(db, 'eruvStatus', cityId)).then(snap => {
-      if (!snap.exists()) return;
-      const d = snap.data() as any;
-      setStatusValue(d.status ?? 'unknown');
-      setNotes(d.notes ?? '');
-      // Load polygons — new format: [{points:[...]}, ...]; legacy: flat array of coords
-      if (Array.isArray(d.polygons) && d.polygons.length > 0) {
-        setPolygons(d.polygons.map((poly: any) =>
-          (poly.points ?? []).map((p: any) => ({ lat: p.latitude, lng: p.longitude }))
-        ));
-      } else if (Array.isArray(d.polygon) && d.polygon.length > 0) {
-        setPolygons([d.polygon.map((p: any) => ({ lat: p.latitude, lng: p.longitude }))]);
-      }
+    getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId))).then(snap => {
+      setAreas(snap.docs.map(d => ({ id: d.id, name: (d.data() as any).name as string })));
     });
   }, [cityId]);
+
+  // Live list of this city's eruv(in). Default the selection to the first
+  // one once loaded, or to whichever one just got created (handleAddEruv
+  // sets activeEruvId itself, so this only fires the FIRST time).
+  useEffect(() => {
+    if (!cityId) return;
+    const q = query(collection(db, 'eruvStatus'), where('cityId', '==', cityId));
+    return onSnapshot(q, snap => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }) as EruvStatusDoc);
+      setEruvs(list);
+      setActiveEruvId(current => current && list.some(e => e.id === current) ? current : (list[0]?.id ?? null));
+    });
+  }, [cityId]);
+
+  // Sync the status/polygon form state to whichever eruv is now selected.
+  useEffect(() => {
+    if (!activeEruv) { setStatusValue('unknown'); setNotes(''); setPolygons([[]]); return; }
+    setStatusValue(activeEruv.status ?? 'unknown');
+    setNotes(activeEruv.notes ?? '');
+    const d = activeEruv as any;
+    // Load polygons — new format: [{points:[...]}, ...]; legacy: flat array of coords
+    if (Array.isArray(d.polygons) && d.polygons.length > 0) {
+      setPolygons(d.polygons.map((poly: any) =>
+        (poly.points ?? []).map((p: any) => ({ lat: p.latitude, lng: p.longitude }))
+      ));
+    } else if (Array.isArray(d.polygon) && d.polygon.length > 0) {
+      setPolygons([d.polygon.map((p: any) => ({ lat: p.latitude, lng: p.longitude }))]);
+    } else {
+      setPolygons([[]]);
+    }
+  }, [activeEruv]);
+
+  async function handleAddEruv(area: AreaOption) {
+    setAddingEruv(false);
+    try {
+      const ref = await addDoc(collection(db, 'eruvStatus'), {
+        cityId, areaIds: [area.id], label: area.name,
+        status: 'unknown', updatedBy: appUser?.uid ?? '', updatedAt: serverTimestamp(),
+      });
+      setActiveEruvId(ref.id);
+    } catch (e: any) {
+      setSaveError(e?.message ?? 'שגיאה בהוספת יישוב');
+    }
+  }
 
   // Real-time reports listener
   useEffect(() => {
@@ -262,12 +331,12 @@ export default function EruvPage() {
   // ─── Save handlers ──────────────────────────────────────────────────────────
 
   const handleSaveStatus = async () => {
-    if (!cityId) return;
+    if (!activeEruvId) return;
     setSavingStatus(true);
     setSaveError(null);
     setPushSent(null);
     try {
-      await setDoc(doc(db, 'eruvStatus', cityId), {
+      await setDoc(doc(db, 'eruvStatus', activeEruvId), {
         status: statusValue, notes,
         updatedBy: appUser?.uid ?? '',
         updatedAt: serverTimestamp(),
@@ -275,9 +344,14 @@ export default function EruvPage() {
       setStatusSaved(true);
       setTimeout(() => setStatusSaved(false), 3000);
 
-      // Auto-send push notification for valid/invalid status
+      // Auto-send push notification for valid/invalid status. areaIds narrows
+      // it to this eruv's own settlement(s) — on a single-eruv city that's
+      // everyone anyway, since its one area is the whole city.
       if (statusValue !== 'unknown' && city) {
-        const count = await sendEruvStatusPush(cityId, city.name, statusValue, appUser?.uid ?? '');
+        const count = await sendEruvStatusPush(
+          cityId, city.name, statusValue, appUser?.uid ?? '',
+          activeEruv?.areaIds, activeEruv?.label,
+        );
         setPushSent(count);
         setTimeout(() => setPushSent(null), 5000);
       }
@@ -289,13 +363,13 @@ export default function EruvPage() {
   };
 
   const handleSavePolygon = async () => {
-    if (!cityId) return;
+    if (!activeEruvId) return;
     const valid = polygons.filter(p => p.length >= 3);
     if (valid.length === 0) { alert('יש לסמן לפחות מצולע אחד עם 3 נקודות'); return; }
     setSavingPolygon(true);
     setSaveError(null);
     try {
-      await setDoc(doc(db, 'eruvStatus', cityId), {
+      await setDoc(doc(db, 'eruvStatus', activeEruvId), {
         polygons: valid.map(poly => ({ points: poly.map(p => ({ latitude: p.lat, longitude: p.lng })) })),
         updatedBy: appUser?.uid ?? '',
       }, { merge: true });
@@ -353,9 +427,46 @@ export default function EruvPage() {
     <div className="p-8" dir="rtl">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-800">עירוב</h1>
+        <h1 className="text-2xl font-bold text-slate-800">
+          עירוב{eruvs.length > 1 && activeEruv ? ` · ${eruvLabel(activeEruv)}` : ''}
+        </h1>
         <p className="text-slate-400 text-sm mt-0.5">ניהול גבולות ומצב העירוב</p>
       </div>
+
+      {/* Settlement row — hidden for a plain single-eruv city */}
+      {(eruvs.length > 1 || uncoveredAreas.length > 0) && (
+        <div className="flex items-center gap-2 flex-wrap mb-6 relative">
+          {eruvs.map(e => {
+            const active = e.id === activeEruvId;
+            const dot = e.status === 'valid' ? 'bg-emerald-500' : e.status === 'invalid' ? 'bg-red-500' : 'bg-amber-400';
+            return (
+              <button key={e.id} onClick={() => setActiveEruvId(e.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                  active ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                }`}>
+                <span className={`w-2 h-2 rounded-full ${dot}`} />
+                {eruvLabel(e)}
+              </button>
+            );
+          })}
+          {uncoveredAreas.length > 0 && (
+            <button onClick={() => setAddingEruv(v => !v)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50">
+              <Plus size={12} /> הוסף יישוב
+            </button>
+          )}
+          {addingEruv && (
+            <div className="absolute top-full right-0 mt-1 w-56 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-10 max-h-72 overflow-y-auto">
+              {uncoveredAreas.map(a => (
+                <button key={a.id} onClick={() => handleAddEruv(a)}
+                  className="w-full text-right px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                  {a.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit mb-6">
@@ -418,7 +529,7 @@ export default function EruvPage() {
             </div>
           )}
 
-          <button onClick={handleSaveStatus} disabled={savingStatus}
+          <button onClick={handleSaveStatus} disabled={savingStatus || !activeEruvId}
             className="flex items-center gap-2 px-5 py-2.5 bg-[#1B3A6B] text-white rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50">
             {statusSaved ? <CheckCircle2 size={15} /> : <Save size={15} />}
             {statusSaved ? 'נשמר!' : savingStatus ? 'שומר...' : 'שמור מצב'}
@@ -498,7 +609,7 @@ export default function EruvPage() {
             </div>
 
             {/* Save button */}
-            <button onClick={handleSavePolygon} disabled={savingPolygon || validPolygonCount === 0}
+            <button onClick={handleSavePolygon} disabled={savingPolygon || validPolygonCount === 0 || !activeEruvId}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-[#1B3A6B] text-white rounded-lg text-xs font-semibold hover:bg-[#15306a] disabled:opacity-50 mr-auto">
               {polygonSaved ? <CheckCircle2 size={13} /> : <Save size={13} />}
               {polygonSaved ? 'נשמר!' : savingPolygon ? 'שומר...' : `שמור (${validPolygonCount} מצולעים)`}
