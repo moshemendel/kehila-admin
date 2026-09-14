@@ -21,6 +21,7 @@ import CitySettingsPage from './pages/CitySettingsPage';
 import EruvPage   from './pages/EruvPage';
 import ReportsPage             from './pages/ReportsPage';
 import GemachPage from './pages/GemachPage';
+import CemeteriesPage from './pages/CemeteriesPage';
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const { firebaseUser, appUser, loading } = useAuth();
@@ -59,6 +60,7 @@ function AppRoutes() {
         <Route path="events"        element={<EventsPage />} />
         <Route path="eruv"          element={<EruvPage />} />
         <Route path="gemach"        element={<GemachPage />} />
+        <Route path="cemeteries"    element={<CemeteriesPage />} />
         <Route path="reports"       element={<ReportsPage />} />
         <Route path="users"         element={<UsersPage />} />
         <Route path="settings"      element={<CitySettingsPage />} />

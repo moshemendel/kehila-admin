@@ -356,3 +356,39 @@ export interface ContentReport {
   handledAt?: unknown;
   createdAt?: { seconds: number } | null;
 }
+
+// ── Areas — a regional council's settlements, or a plain city's own one ──────
+// Mirrors src/types/index.ts's Area in kehila-app; see the "golden rule" there
+// (a single-area city never needs this surfaced). Nothing in this console read
+// areas before CemeteriesPage — no city here has more than the app-side work
+// already gave it (Emek HaYarden's 22, everyone else's one isDefault).
+export interface Area {
+  id: string;
+  cityId: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  isDefault?: boolean;
+}
+
+// ── Cemeteries ────────────────────────────────────────────────────────────────
+
+export interface Cemetery {
+  id: string;
+  cityId: string;
+  /** Which of the tenant's area(s) this cemetery serves — plural because one
+   *  cemetery can serve more than one settlement (a shared burial ground for
+   *  two adjacent kibbutzim). A single-area city's one cemetery still carries
+   *  this, its one area's id. */
+  areaIds: string[];
+  name: string;
+  contactName?: string;
+  contactPhone?: string;
+  /** A ready-to-open directions link — Waze or Google Maps, whichever the
+   *  source gave. Opened as-is, not parsed for coordinates. */
+  directionsUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  notes?: string;
+  updatedAt?: any;
+}
