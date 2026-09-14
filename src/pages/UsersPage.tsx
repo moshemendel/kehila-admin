@@ -359,8 +359,23 @@ export default function UsersPage() {
     // so a future cross-city role is hidden the day it is added.
     : allUsers.filter(u => cat.byKey(u.role)?.scope !== 'global');
 
-  const managerUsers  = visibleUsers.filter(u => u.role !== 'user');
-  const regularUsers  = visibleUsers.filter(u => u.role === 'user');
+  const managerUsersAll = visibleUsers.filter(u => u.role !== 'user');
+  const regularUsersAll = visibleUsers.filter(u => u.role === 'user');
+
+  // An appointer's list is curated down to accounts they could sensibly act
+  // on: never themselves, and never anyone who already holds a `blanket`
+  // role (city_admin, content_admin, super_admin, dev — the ones that
+  // "subsume the roles below" per the catalogue). This is a UI curation
+  // choice, not the security boundary: the users rules would in fact let a
+  // domain manager add their child role to a content_admin's account (it
+  // carries no `authority`), and self-edits are refused by the rules'
+  // profile-only branch regardless of what this filters. Showing either
+  // anyway is just noise — an appointment option nobody would sensibly take.
+  const appointableTarget = (u: AppUser) =>
+    u.uid !== appUser?.uid && !(u.roles ?? [u.role]).some((r) => cat.byKey(r)?.blanket);
+
+  const managerUsers = appointer ? managerUsersAll.filter(appointableTarget) : managerUsersAll;
+  const regularUsers = appointer ? regularUsersAll.filter(appointableTarget) : regularUsersAll;
 
   const cityName = (cid: string) => cities.find(c => c.id === cid)?.name ?? cid;
 
@@ -388,20 +403,34 @@ export default function UsersPage() {
     { key: 'dev',      label: 'צוות פיתוח',     icon: Code2,    count: devUsers.length, hidden: !isSuperAdmin },
   ];
 
-  // An appointer cannot touch an account that holds authority — the
-  // delegation rule refuses it (grantsAuthority on the existing document), so
-  // the row shows no action rather than an editor that would fail on save.
+  // No rule branch lets an account touch its own role fields outside the
+  // narrow self-edit clause (profile fields only) — so an action here would
+  // always fail on save. Checked before anything else, for every actor.
+  const isSelf = (u: AppUser) => u.uid === appUser?.uid;
+  // A peer who already holds authority (another city_admin, in the same
+  // city) — the plain-city_admin update branch explicitly excludes editing
+  // an account that already grants it. super_admin has no such carve-out and
+  // may edit any account but its own.
   const holdsAuthority = (u: AppUser) =>
     (u.roles ?? [u.role]).some((r) => cat.byKey(r)?.authority);
 
   const rowAction = (row: AppUser) => {
-    if (fullWriter) return (
+    if (isSelf(row)) return null;
+    if (isSuperAdmin) return (
       <button onClick={() => setEditUser(row)} title="עריכת תפקידים"
         className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
         <Pencil size={14} />
       </button>
     );
-    if (appointer && !holdsAuthority(row)) return (
+    if (actorRoles.includes('city_admin')) return holdsAuthority(row) ? null : (
+      <button onClick={() => setEditUser(row)} title="עריכת תפקידים"
+        className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
+        <Pencil size={14} />
+      </button>
+    );
+    // appointer: the list (managerUsers/regularUsers above) is already
+    // curated by appointableTarget, so every row reaching here is fair game.
+    if (appointer) return (
       <button onClick={() => setEditUser(row)} title={`מינוי ל${appointsTo}`}
         className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
         <UserPlus size={14} />
