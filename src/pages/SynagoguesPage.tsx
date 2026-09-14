@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { collection, getDocs, query, where, doc, setDoc, deleteDoc, serverTimestamp, getDoc, updateDoc, arrayUnion, documentId } from 'firebase/firestore';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../firebase';
@@ -225,6 +225,7 @@ export default function SynagoguesPage() {
           onRowClick={row => { setSelectedId(row.id); navigate(`/cities/${cityId}/synagogues/${row.id}`); }}
           rowId={row => `syn-row-${row.id}`}
           highlightId={selectedId ?? undefined}
+          actionsHeader="מחיקה"
           actions={isAdmin ? (row => (
             <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
               <Trash2 size={14} />

@@ -15,13 +15,23 @@ interface Props<T extends { id: string }> {
   onRowClick?: (row: T) => void;
   searchKeys?: (keyof T)[];
   actions?: (row: T) => React.ReactNode;
+  /**
+   * Header for the actions column. Defaults to the generic "פעולות" — pass
+   * "מחיקה" explicitly only where every row's action really is a delete
+   * button and nothing else. It used to be hardcoded to "מחיקה" for every
+   * caller, on the assumption the column was delete-only everywhere once
+   * edit moved to row-click; three pages actually put approve/reject,
+   * duplicate+delete, or resolve/dismiss buttons there, so the header read
+   * "deletion" over an icon that deleted nothing.
+   */
+  actionsHeader?: string;
   pageSize?: number;
   rowId?: (row: T) => string;
   highlightId?: string;
 }
 
 export default function DataTable<T extends { id: string }>({
-  data, columns, onRowClick, searchKeys = [], actions, pageSize = 20,
+  data, columns, onRowClick, searchKeys = [], actions, actionsHeader = 'פעולות', pageSize = 20,
   rowId, highlightId,
 }: Props<T>) {
   const [query, setQuery] = useState('');
@@ -94,7 +104,7 @@ export default function DataTable<T extends { id: string }>({
                   </span>
                 </th>
               ))}
-              {actions && <th className="text-right px-4 py-3 font-semibold text-slate-600 w-24">מחיקה</th>}
+              {actions && <th className="text-right px-4 py-3 font-semibold text-slate-600 w-24">{actionsHeader}</th>}
             </tr>
           </thead>
           <tbody>
