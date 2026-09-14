@@ -113,7 +113,13 @@ export default function NotificationsPage() {
       setCities(list);
       // Default city selection
       if (!canPickCity) {
-        setCityId(routeCityId ?? appUser?.cityId ?? '');
+        // homeCityId, not cityId. cityId is the personal browsing preference and
+        // moves whenever this admin looks at another city; homeCityId is the one
+        // they actually administer. The pushTokens rule scopes reads to
+        // homeCityId, so querying by the browsable one would be denied the
+        // moment the two diverged — and sending to a city because you happen to
+        // be looking at it is what that rule exists to stop.
+        setCityId(routeCityId ?? appUser?.homeCityId ?? appUser?.cityId ?? '');
       } else if (routeCityId) {
         setCityId(routeCityId);
       } else if (list.length > 0) {
