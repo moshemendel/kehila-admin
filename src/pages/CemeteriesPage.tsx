@@ -232,7 +232,21 @@ export default function CemeteriesPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1">קישור ניווט (Waze / Google Maps)</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm font-semibold text-slate-700">קישור ניווט (Waze / Google Maps)</label>
+              {form.latitude != null && form.longitude != null && (
+                <button
+                  type="button"
+                  onClick={() => setForm(p => ({
+                    ...p,
+                    directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${p.latitude},${p.longitude}`,
+                  }))}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  צור קישור מהקואורדינטות
+                </button>
+              )}
+            </div>
             <input
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-left"
               dir="ltr"
