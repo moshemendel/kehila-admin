@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { collection, getDocs, query, where, doc, setDoc, deleteDoc, serverTimestamp, getDoc, updateDoc, arrayUnion, documentId } from 'firebase/firestore';
 import { useNavigate, useParams } from 'react-router-dom';
 import { db } from '../firebase';
@@ -11,6 +11,7 @@ import ExcelImportModal from '../components/ExcelImportModal';
 import { exportToExcel } from '../utils/excel';
 import { Plus, Trash2, Upload, Download } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 
 // The create modal deliberately collects only enough to identify the synagogue.
 // Everything else (contacts, gabbaim, coordinates, prayer times, shiurim,
@@ -25,9 +26,15 @@ export default function SynagoguesPage() {
   const navigate = useNavigate();
   const { setMarkers, selectedId, setSelectedId } = useMapSync();
   const { appUser } = useAuth();
-  const isAdmin = ['city_admin', 'super_admin', 'dev'].includes(appUser?.role ?? '');
+  const cat = useRoleCatalogue();
   // A gabbai can hold other roles too — check the full roles array, not just the primary role.
   const roles      = appUser?.roles ?? (appUser?.role ? [appUser.role] : []);
+  // Content authority (managesContentIn in the rules), OR synagogue_manager —
+  // the city-wide rung of managesSynagogue(). Was a hardcoded three-role list
+  // naming only the account-authority roles, which is how content_admin was
+  // already locked out of this page, and how synagogue_manager — appointed to
+  // do exactly this — would have been too.
+  const isAdmin    = roles.some(r => cat.byKey(r)?.content) || roles.includes('synagogue_manager');
   const isGabbai   = roles.includes('gabbai');
   const mySynIds   = appUser?.managedSynagogueIds ?? [];
 
@@ -225,6 +232,7 @@ export default function SynagoguesPage() {
           onRowClick={row => { setSelectedId(row.id); navigate(`/cities/${cityId}/synagogues/${row.id}`); }}
           rowId={row => `syn-row-${row.id}`}
           highlightId={selectedId ?? undefined}
+          actionsHeader="מחיקה"
           actions={isAdmin ? (row => (
             <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors">
               <Trash2 size={14} />

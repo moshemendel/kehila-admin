@@ -749,6 +749,7 @@ export default function BusinessesPage() {
         <DataTable
           data={data} columns={columns} searchKeys={['name', 'category', 'neighborhood', 'address']}
           onRowClick={row => canEdit(row) ? openEdit(row) : undefined}
+          actionsHeader="מחיקה"
           actions={canManageKash ? (row => canEdit(row) ? (
             <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
               <Trash2 size={14} />

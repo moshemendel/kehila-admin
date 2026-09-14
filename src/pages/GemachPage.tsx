@@ -10,6 +10,7 @@ import type { Gemach, GemachCategory, PendingGemach } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import { Plus, Trash2, CheckCircle2, XCircle, Gift } from 'lucide-react';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 
 const CATEGORY_LABELS: Record<GemachCategory, string> = {
   clothing:  'ביגוד',
@@ -34,7 +35,13 @@ const EMPTY_FORM = {
 export default function GemachPage() {
   const { cityId = '' } = useParams<{ cityId: string }>();
   const { appUser } = useAuth();
-  const isAdmin = ['city_admin', 'super_admin', 'dev'].includes(appUser?.role ?? '');
+  const cat = useRoleCatalogue();
+  // Content authority — mirrors managesContentIn() in the rules. No dedicated
+  // manager role exists for gemachs (admins only, per the rules' own comment),
+  // so unlike synagogues/mikvaot/kashrut there is no domain role to add here.
+  // Was a hardcoded three-role list missing content_admin.
+  const roles = appUser?.roles ?? (appUser?.role ? [appUser.role] : []);
+  const isAdmin = roles.some(r => cat.byKey(r)?.content);
 
   const [gemachs,  setGemachs]  = useState<Gemach[]>([]);
   const [pending,  setPending]  = useState<PendingGemach[]>([]);
@@ -242,6 +249,7 @@ export default function GemachPage() {
             columns={gemachCols}
             data={gemachs}
             onRowClick={isAdmin ? openEdit : undefined}
+            actionsHeader="מחיקה"
             actions={isAdmin ? (g) => (
               <button onClick={() => setDeleteId(g.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
             ) : undefined}
