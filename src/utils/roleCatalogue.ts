@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import type { UserRole } from '../types';
 
 /**
  * The roles an account can hold — read from the app, never listed here.
@@ -26,18 +25,10 @@ import type { UserRole } from '../types';
  * list — not even a fallback, which is only a stale list that waits for a bad
  * network before it lies to you.
  */
-export interface RoleEntry {
-  key: UserRole;
-  label: string;
-  color: string;
-  icon: string;
-  assignableBy: 'city_admin' | 'super_admin';
-  scope: 'city' | 'global';
-  blanket: boolean;
-  authority: boolean;
-  content: boolean;
-  manages?: 'synagogues' | 'businesses';
-}
+// The model itself lives in roleLogic.ts; this file is the Firestore plumbing
+// around it. Re-exported so existing imports keep working.
+export * from './roleLogic';
+import { catalogueOf, type RoleEntry, type Catalogue } from './roleLogic';
 
 /** Colour token → chip classes. The catalogue names a colour; each app owns
  *  what that colour looks like, so the two palettes can differ without the
@@ -75,19 +66,6 @@ function load(): Promise<RoleEntry[] | null> {
   return inFlight;
 }
 
-export interface Catalogue {
-  roles: RoleEntry[];
-  loading: boolean;
-  /** The catalogue could not be read. Callers must show this rather than
-   *  silently rendering an empty role picker, which reads as "no roles exist". */
-  failed: boolean;
-  byKey: (key: UserRole) => RoleEntry | undefined;
-  labelOf: (key: UserRole) => string;
-  /** Highest authority first — the published order IS the priority. */
-  computePrimaryRole: (roles: UserRole[]) => UserRole;
-  /** What this actor may grant, mirroring grantsAuthority() in the rules. */
-  assignableBy: (isSuperAdmin: boolean) => RoleEntry[];
-}
 
 export function useRoleCatalogue(): Catalogue {
   const [roles, setRoles] = useState<RoleEntry[]>(cached ?? []);
@@ -105,18 +83,7 @@ export function useRoleCatalogue(): Catalogue {
     return () => { live = false; };
   }, []);
 
-  const byKey = (key: UserRole) => roles.find((r) => r.key === key);
-
-  return {
-    roles,
-    loading,
-    failed,
-    byKey,
-    // A key with no catalogue entry is shown as itself rather than as blank —
-    // an unknown role is worth seeing, and an empty chip is not.
-    labelOf: (key) => byKey(key)?.label ?? key,
-    computePrimaryRole: (held) => roles.find((r) => held.includes(r.key))?.key ?? 'user',
-    assignableBy: (isSuperAdmin) =>
-      roles.filter((r) => isSuperAdmin || r.assignableBy === 'city_admin'),
-  };
+  // A key with no catalogue entry is shown as itself rather than as blank —
+  // an unknown role is worth seeing, and an empty chip is not (labelOf).
+  return { ...catalogueOf(roles), loading, failed };
 }

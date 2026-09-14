@@ -33,20 +33,22 @@ import {
  *                       so a content_admin sees exactly what they can save.
  *
  * plus `specialist`, the narrow role that gets this one section and nothing
- * else — a gabbai and their shuls, an eruv_manager and the eruv.
+ * else — a gabbai and their shuls, an eruv_manager and the eruv — and
+ * `delegators`, for the one section a domain manager needs beyond their own:
+ * users, where they appoint their tier-3 operators (cat.isDelegator).
  */
 const TABS = [
   { sub: '',           label: 'סקירה',      icon: LayoutDashboard, access: 'authority' },
-  { sub: 'synagogues', label: 'בתי כנסת',   icon: Building2,       access: 'content', specialist: ['gabbai'] },
-  { sub: 'mikvaot',    label: 'מקואות',     icon: Droplets,        access: 'content', specialist: ['mikveh_manager'] },
-  { sub: 'kosher',     label: 'כשרות',      icon: UtensilsCrossed, access: 'content', specialist: ['kosher_manager'] },
+  { sub: 'synagogues', label: 'בתי כנסת',   icon: Building2,       access: 'content', specialist: ['synagogue_manager', 'gabbai'] },
+  { sub: 'mikvaot',    label: 'מקואות',     icon: Droplets,        access: 'content', specialist: ['mikveh_manager', 'mikveh_attendant'] },
+  { sub: 'kosher',     label: 'כשרות',      icon: UtensilsCrossed, access: 'content', specialist: ['kosher_manager', 'mashgiach'] },
   { sub: 'businesses', label: 'בתי עסק',    icon: Store,           access: 'content', specialist: ['business_manager'] },
   { sub: 'events',     label: 'אירועים',    icon: CalendarDays,    access: 'content', specialist: ['event_manager'] },
   { sub: 'eruv',       label: 'עירוב',      icon: Shield,          access: 'content', specialist: ['eruv_manager'] },
   { sub: 'gemach',     label: 'גמ"ח',       icon: Gift,            access: 'content' },
   { sub: 'reports',    label: 'דיווחים',     icon: Flag,            access: 'content',
-    specialist: ['gabbai','business_manager','kosher_manager','mikveh_manager','event_manager'] },
-  { sub: 'users',      label: 'משתמשים',    icon: Users,           access: 'authority' },
+    specialist: ['synagogue_manager','gabbai','business_manager','kosher_manager','mashgiach','mikveh_manager','mikveh_attendant','event_manager'] },
+  { sub: 'users',      label: 'משתמשים',    icon: Users,           access: 'authority', delegators: true },
   { sub: 'settings',   label: 'הגדרות עיר', icon: Settings,        access: 'authority' },
 ] as const;
 
@@ -112,7 +114,8 @@ export default function CityLayout() {
 
   const matchedTabs = TABS.filter(t =>
     (t.access === 'authority' ? hasAuthority : hasContent) ||
-    roles.some(r => ((t as { specialist?: readonly string[] }).specialist ?? []).includes(r)));
+    roles.some(r => ((t as { specialist?: readonly string[] }).specialist ?? []).includes(r)) ||
+    ((t as { delegators?: boolean }).delegators === true && cat.isDelegator(roles)));
   const visibleTabs = matchedTabs.length > 0 ? matchedTabs : [TABS[0]];
 
   const handleLogout = async () => {
