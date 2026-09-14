@@ -72,11 +72,25 @@ export default function RolesEditor({ cat, draft, onChange, actorRoles, items }:
 
   const toggleRole = (entry: RoleEntry) => {
     const wasOn = draft.roles.includes(entry.key);
-    // Clicking an active list-role that still has items must NOT silently drop
-    // the role — that would orphan the assignment with no visible trace. It
-    // toggles the list open/closed instead; the role goes only once it's empty.
+    // Clicking an active list-role that still has items used to just toggle
+    // the (already-open-by-default) list open/closed instead of removing the
+    // role — silently, with nothing on screen explaining why the pill
+    // "wouldn't turn off". A city_admin appointing gabbai/attendant/mashgiach
+    // could dismiss one only by first unchecking every item below, one at a
+    // time, with no indication that was the required step. Reported as "אני
+    // מנסה לבטל משתמש מלהיות בלן וזה לא נותן" against exactly this button.
+    //
+    // Now the pill removes the role directly — after one confirm, since doing
+    // so also clears the assignment array in the same stroke. That pairing is
+    // still required, not just convenient: a role dropped from `roles` while
+    // its array keeps its old contents is an orphan — re-adding the role
+    // later would silently restore an assignment (a mikveh, say) nobody
+    // meant to still associate with this account.
     if (wasOn && entry.field && draft[entry.field].length > 0) {
-      setOpenLists((o) => ({ ...o, [entry.field!]: !o[entry.field!] }));
+      const count = draft[entry.field].length;
+      const noun = entry.manages ? LIST_TITLE[entry.manages] : entry.label;
+      if (!window.confirm(`הסרת התפקיד "${entry.label}" תבטל גם את השיוך ל-${count} ${noun}. להמשיך?`)) return;
+      onChange({ ...draft, roles: draft.roles.filter((r) => r !== entry.key), [entry.field]: [] });
       return;
     }
     onChange({ ...draft, roles: wasOn ? draft.roles.filter((r) => r !== entry.key) : [...draft.roles, entry.key] });
