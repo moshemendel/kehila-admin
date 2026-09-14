@@ -17,6 +17,7 @@ import { useMapSync } from '../contexts/MapSyncContext';
 import { useAuth } from '../contexts/AuthContext';
 import { nanoid } from '../utils/nanoid';
 import MapTiles from '../components/MapTiles';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -448,7 +449,13 @@ export default function SynagogueDetailPage() {
 
   const { setMarkers, setSelectedId } = useMapSync();
   const { appUser } = useAuth();
-  const isAdmin = ['city_admin', 'super_admin', 'dev'].includes(appUser?.role ?? '');
+  const cat = useRoleCatalogue();
+  const roles = appUser?.roles ?? (appUser?.role ? [appUser.role] : []);
+  // Content authority, or synagogue_manager — mirrors managesSynagogue()'s two
+  // city-wide rungs. Was a hardcoded three-role list that had neither, so
+  // content_admin and synagogue_manager could open this page (read is public)
+  // but every save attempt failed with permission-denied.
+  const isAdmin = roles.some(r => cat.byKey(r)?.content) || roles.includes('synagogue_manager');
   const [syn, setSyn] = useState<Synagogue | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('info');

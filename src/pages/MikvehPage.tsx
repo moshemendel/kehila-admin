@@ -16,6 +16,7 @@ import HoursScheduleEditor from '../components/HoursScheduleEditor';
 import { exportToExcel } from '../utils/excel';
 import { Plus, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
@@ -68,11 +69,23 @@ export default function MikvehPage() {
   const { cityId = '' } = useParams<{ cityId: string }>();
   const { appUser } = useAuth();
   const { setMarkers } = useMapSync();
+  const cat = useRoleCatalogue();
 
   // A user can hold several roles at once — check the full array (falling back
   // to the single primary role for accounts saved before roles[] existed).
   const roles = appUser?.roles ?? (appUser?.role ? [appUser.role] : []);
-  const isAdmin = roles.some((r) => ['city_admin', 'super_admin', 'dev', 'mikveh_manager'].includes(r));
+  // Content authority, or mikveh_manager (the city-wide rung) — mirrors the
+  // mikvaot rule's two admin branches. Was a hardcoded list that had
+  // mikveh_manager but not content_admin.
+  const isAdmin = roles.some((r) => cat.byKey(r)?.content) || roles.includes('mikveh_manager');
+  // mikveh_attendant is the per-mikveh rung (attendsMikveh in the rules) — the
+  // same shape as gabbai/managedSynagogueIds on SynagoguesPage. There was no
+  // equivalent here at all: an attendant's only path to her own mikveh was an
+  // unconditional row-click that happened to succeed because the rule allows
+  // it, with no indication which mikveh was hers and no distinct affordance.
+  const isAttendant = roles.includes('mikveh_attendant');
+  const myMikvehIds = appUser?.managedMikvehIds ?? [];
+  const canEdit = (row: Mikveh) => isAdmin || (isAttendant && myMikvehIds.includes(row.id));
 
   const [data, setData] = useState<Mikveh[]>([]);
   const [loading, setLoading] = useState(true);
@@ -270,13 +283,13 @@ export default function MikvehPage() {
 
       {loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
         <DataTable data={data} columns={columns} searchKeys={['name', 'neighborhood', 'address']}
-          onRowClick={openEdit}
-          actions={row => (
+          onRowClick={row => canEdit(row) ? openEdit(row) : undefined}
+          actions={isAdmin ? (row => (
             <div className="flex items-center gap-1">
               <button onClick={() => handleDuplicate(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="שכפל"><Copy size={14} /></button>
               <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
             </div>
-          )}
+          )) : undefined}
         />
       )}
 
