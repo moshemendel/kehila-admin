@@ -1,48 +1,76 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { collection, getDocs, query, where, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useParams } from 'react-router-dom';
-import type { AppUser, UserRole, City, Synagogue, business } from '../types';
+import type { AppUser, UserRole, City, Synagogue, business, Mikveh } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
-import { Plus, Pencil, Shield, Code2, Users, UserCog, ChevronDown, ChevronUp } from 'lucide-react';
+import RolesEditor from '../components/RolesEditor';
+import { Plus, Pencil, Shield, Code2, Users, UserCog } from 'lucide-react';
 import { createUserWithRole } from '../utils/createUser';
 import { useRoleCatalogue, chipClass } from '../utils/roleCatalogue';
+import {
+  type Catalogue, type RoleDraft, type CityItems, emptyDraft, draftFromUser, missingAssignments, roleUpdates,
+} from '../utils/roleLogic';
 import { checkPassword, suggestPassword, MIN_LENGTH } from '../utils/passwordPolicy';
 
-// ─── Role metadata ────────────────────────────────────────────────────────────
+// ─── Shared ───────────────────────────────────────────────────────────────────
 
+/** Every role the signed-in account holds — each question below is asked of
+ *  the set, never of the single primary role. */
+function useActorRoles(): UserRole[] {
+  const { appUser } = useAuth();
+  return useMemo(() => (appUser?.roles ?? (appUser?.role ? [appUser.role] : [])) as UserRole[], [appUser]);
+}
+
+const cityItems = (all: { synagogues: Synagogue[]; businesses: business[]; mikvaot: Mikveh[] }, cityId: string): CityItems => ({
+  synagogues: all.synagogues.filter((s) => s.cityId === cityId),
+  businesses: all.businesses.filter((b) => b.cityId === cityId),
+  mikvaot:    all.mikvaot.filter((m) => m.cityId === cityId),
+});
+
+/** The one sentence under a blocked save button. */
+function missingMessage(cat: Catalogue, draft: RoleDraft, actorRoles: UserRole[]): string | null {
+  const missing = missingAssignments(draft, cat, actorRoles);
+  if (missing.length === 0) return null;
+  const what = { synagogues: 'בית כנסת', businesses: 'עסק', mikvaot: 'מקווה' } as const;
+  return missing.map((r) => `${r.label}: יש לבחור לפחות ${what[r.manages!]} אחד`).join(' · ');
+}
 
 // ─── Add-user form ────────────────────────────────────────────────────────────
 
-function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId, cities }: {
+function AddUserModal({ open, onClose, onCreated, currentCityId, cities, all }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
-  currentUserRole: UserRole;
   currentCityId: string;
   cities: City[];
+  all: { synagogues: Synagogue[]; businesses: business[]; mikvaot: Mikveh[] };
 }) {
   const [email, setEmail]           = useState('');
   const [password, setPassword]     = useState('');
   const [displayName, setName]      = useState('');
-  const [role, setRole]             = useState<UserRole>('gabbai');
+  const [draft, setDraft]           = useState<RoleDraft>(emptyDraft());
   const [cityId, setCityId]         = useState(currentCityId);
   const [saving, setSaving]         = useState(false);
   const [error, setError]           = useState('');
 
   const pwCheck = checkPassword(password, { name: displayName, email });
-
-  const isSuperAdmin = currentUserRole === 'super_admin';
+  const actorRoles = useActorRoles();
+  const isSuperAdmin = actorRoles.includes('super_admin') || actorRoles.includes('dev');
   const cat = useRoleCatalogue();
-  const assignable = cat.assignableBy(isSuperAdmin);
 
-  useEffect(() => { if (open) { setEmail(''); setPassword(''); setName(''); setRole('gabbai'); setCityId(currentCityId); setError(''); } }, [open]);
+  useEffect(() => {
+    if (open) { setEmail(''); setPassword(''); setName(''); setDraft(emptyDraft()); setCityId(currentCityId); setError(''); }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const targetCity = isSuperAdmin ? cityId : currentCityId;
+  const blocked = missingMessage(cat, draft, actorRoles);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!email || !password || !displayName) return;
+    if (!email || !password || !displayName || blocked) return;
     if (!pwCheck.ok) {
       setError(pwCheck.error ?? `הסיסמה אינה עומדת בדרישות: ${pwCheck.rules.find(r => !r.met)?.label}`);
       return;
@@ -50,7 +78,18 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
     setSaving(true);
     setError('');
     try {
-      await createUserWithRole({ email, password, displayName, role, cityId: isSuperAdmin ? cityId : currentCityId });
+      const roles = draft.roles;
+      await createUserWithRole({
+        email, password, displayName, cityId: targetCity,
+        roles,
+        primaryRole: cat.computePrimaryRole(roles.length ? roles : ['user']),
+        assignments: {
+          managedSynagogueIds:   draft.managedSynagogueIds,
+          managedRestaurantIds:  draft.managedRestaurantIds,
+          managedMikvehIds:      draft.managedMikvehIds,
+          supervisedBusinessIds: draft.supervisedBusinessIds,
+        },
+      });
       onCreated();
       onClose();
     } catch (err: any) {
@@ -101,28 +140,29 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
           )}
           <p className="text-xs text-slate-400 mt-1.5">המשתמש יוכל לשנות את הסיסמה לאחר הכניסה הראשונה.</p>
         </div>
-        <div className={isSuperAdmin ? 'grid grid-cols-2 gap-3' : ''}>
+
+        {isSuperAdmin && (
           <div>
-            <label className={lbl}>תפקיד *</label>
-            <select value={role} onChange={e => setRole(e.target.value as UserRole)} className={inp}>
-              {assignable.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+            <label className={lbl}>עיר</label>
+            <select value={cityId} onChange={e => setCityId(e.target.value)} className={inp}>
+              <option value="">— כללי —</option>
+              {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          {isSuperAdmin && (
-            <div>
-              <label className={lbl}>עיר</label>
-              <select value={cityId} onChange={e => setCityId(e.target.value)} className={inp}>
-                <option value="">— כללי —</option>
-                {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-          )}
+        )}
+
+        <div>
+          <label className={lbl}>תפקידים</label>
+          {cat.failed
+            ? <p className="text-sm text-red-600">רשימת התפקידים לא נטענה — לא ניתן להקצות תפקיד.</p>
+            : <RolesEditor cat={cat} draft={draft} onChange={setDraft} actorRoles={actorRoles} items={cityItems(all, targetCity)} />}
         </div>
 
+        {blocked && <div className="bg-amber-50 text-amber-700 text-xs px-4 py-2.5 rounded-xl border border-amber-100">{blocked}</div>}
         {error && <div className="bg-red-50 text-red-600 text-sm px-4 py-2.5 rounded-xl border border-red-100">{error}</div>}
 
         <div className="flex gap-3 pt-2">
-          <button type="submit" disabled={saving || !email || !displayName || !pwCheck.ok}
+          <button type="submit" disabled={saving || !email || !displayName || !pwCheck.ok || !!blocked || cat.failed}
             className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50">
             {saving ? 'יוצר משתמש...' : 'צור משתמש'}
           </button>
@@ -135,101 +175,32 @@ function AddUserModal({ open, onClose, onCreated, currentUserRole, currentCityId
 
 // ─── Edit role modal ──────────────────────────────────────────────────────────
 
-
-type SubListState = { syn: boolean; rest: boolean };
-
-type RoleDraft = {
-  roles: UserRole[];
-  managedSynagogueIds: string[];
-  managedRestaurantIds: string[];
-  cityId: string;
-};
-
-function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogues, businesses, cities }: {
+function EditRoleModal({ open, user, onSave, onClose, cities, all }: {
   open: boolean;
   user: AppUser | null;
-  onSave: (uid: string, draft: RoleDraft, primaryRole: UserRole, homeCityId: string) => Promise<void>;
+  onSave: (user: AppUser, draft: RoleDraft, cityId: string) => Promise<void>;
   onClose: () => void;
-  currentUserRole: UserRole;
-  synagogues: Synagogue[];
-  businesses: business[];
   cities: City[];
+  all: { synagogues: Synagogue[]; businesses: business[]; mikvaot: Mikveh[] };
 }) {
-  const [draft, setDraft] = useState<RoleDraft>({ roles: ['user'], managedSynagogueIds: [], managedRestaurantIds: [], cityId: '' });
-  const [subLists, setSubLists] = useState<SubListState>({ syn: false, rest: false });
+  const [draft, setDraft]   = useState<RoleDraft>(emptyDraft());
+  const [cityId, setCityId] = useState('');
   const [saving, setSaving] = useState(false);
-  const isSuperAdmin = currentUserRole === 'super_admin';
+  const actorRoles = useActorRoles();
+  const isSuperAdmin = actorRoles.includes('super_admin') || actorRoles.includes('dev');
   const cat = useRoleCatalogue();
-  const assignable = cat.assignableBy(isSuperAdmin);
 
   useEffect(() => {
-    if (user) {
-      const roles = user.roles ?? [user.role];
-      setDraft({
-        roles,
-        managedSynagogueIds: user.managedSynagogueIds ?? [],
-        managedRestaurantIds: user.managedRestaurantIds ?? [],
-        cityId: user.cityId ?? '',
-      });
-      setSubLists({ syn: roles.includes('gabbai'), rest: roles.includes('business_manager') });
-    }
+    if (user) { setDraft(draftFromUser(user)); setCityId(user.homeCityId ?? user.cityId ?? ''); }
   }, [user]);
 
-  // Clicking a list-role chip while it still has assigned items must NOT silently
-  // drop the role (that orphans the assignment with no visible trace) — it just
-  // toggles the section open/closed instead. Only removes the role once it's empty.
-  const toggleRole = (role: UserRole) => {
-    const isListRole = !!cat.byKey(role)?.manages;
-    const wasOn = draft.roles.includes(role);
-
-    if (isListRole && wasOn) {
-      const hasItems = role === 'gabbai'
-        ? draft.managedSynagogueIds.length > 0
-        : draft.managedRestaurantIds.length > 0;
-      if (hasItems) {
-        const key = role === 'gabbai' ? 'syn' : 'rest';
-        setSubLists(prev => ({ ...prev, [key]: !prev[key] }));
-        return;
-      }
-    }
-
-    setDraft(d => {
-      const has = d.roles.includes(role);
-      if (has && d.roles.length === 1) return { ...d, roles: ['user'] };
-      return { ...d, roles: has ? d.roles.filter(r => r !== role) : [...d.roles, role] };
-    });
-
-    if (isListRole) {
-      const key = role === 'gabbai' ? 'syn' : 'rest';
-      setSubLists(prev => ({ ...prev, [key]: !wasOn }));
-    }
-  };
-
-  const toggleSynagogue = (id: string) => setDraft(d => ({
-    ...d,
-    managedSynagogueIds: d.managedSynagogueIds.includes(id)
-      ? d.managedSynagogueIds.filter(x => x !== id)
-      : [...d.managedSynagogueIds, id],
-  }));
-
-  const toggleBusiness = (id: string) => setDraft(d => ({
-    ...d,
-    managedRestaurantIds: d.managedRestaurantIds.includes(id)
-      ? d.managedRestaurantIds.filter(x => x !== id)
-      : [...d.managedRestaurantIds, id],
-  }));
+  const blocked = missingMessage(cat, draft, actorRoles);
 
   const handleSave = async () => {
-    if (!user) return;
+    if (!user || blocked) return;
     setSaving(true);
     try {
-      // The city picker above only assigns a city_admin's administrative scope —
-      // it must not overwrite an existing manager's homeCityId when unrelated
-      // role fields are being edited.
-      const homeCityId = draft.roles.includes('city_admin')
-        ? draft.cityId
-        : (user.homeCityId ?? user.cityId);
-      await onSave(user.uid, draft, cat.computePrimaryRole(draft.roles), homeCityId);
+      await onSave(user, draft, cityId);
       onClose();
     } catch (e: any) {
       alert(e?.message ?? 'שגיאה בשמירה');
@@ -237,9 +208,6 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
       setSaving(false);
     }
   };
-
-  const citySynagogues = synagogues.filter(s => s.cityId === draft.cityId);
-  const cityBusinesses = businesses.filter(b => b.cityId === draft.cityId);
 
   return (
     <Modal open={open} title="עריכת תפקידים" onClose={onClose} size="md">
@@ -250,108 +218,30 @@ function EditRoleModal({ open, user, onSave, onClose, currentUserRole, synagogue
             <div className="text-sm text-slate-400">{user.email}</div>
           </div>
 
-          <div className="mb-5">
-            <label className={lbl}>תפקידים (ניתן לבחור מספר)</label>
-            <div className="flex flex-wrap gap-2">
-              {assignable.map(({ key: r, label, manages }) => {
-                const active     = draft.roles.includes(r);
-                const isListRole = !!manages;
-                const itemCount  = manages === 'synagogues' ? draft.managedSynagogueIds.length
-                  : manages === 'businesses' ? draft.managedRestaurantIds.length : 0;
-                const hasItems   = itemCount > 0;
-
-                // Three states for list-roles: inactive / active-no-items (border only) / active-with-items (filled)
-                const fullFill   = active && (!isListRole || hasItems);
-                const borderOnly = active && isListRole && !hasItems;
-
-                return (
-                  <div key={r} className="relative">
-                    <button type="button" onClick={() => toggleRole(r)}
-                      className={`px-3 py-1.5 text-xs rounded-full border font-medium transition-colors ${
-                        fullFill   ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
-                        : borderOnly ? 'border-2 border-[#1B3A6B] text-[#1B3A6B] bg-[#1B3A6B]/10'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}>
-                      {label}
-                    </button>
-                    {isListRole && active && hasItems && (
-                      <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1 border border-white">
-                        {itemCount}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            {!draft.roles.some(r => assignable.some(a => a.key === r)) && (
-              <p className="text-xs text-amber-600 mt-1.5">
-                אף אחד מהתפקידים הנוכחיים אינו ברשימה — שמירה תוריד את ההרשאות.
-              </p>
-            )}
-          </div>
-
+          {/* The city picker assigns a city_admin's administrative scope. Shown
+              only to a super_admin and only for that role — a city_admin's own
+              homeCityId is their jurisdiction and the rule refuses to let anyone
+              but a super_admin move it. */}
           {isSuperAdmin && draft.roles.includes('city_admin') && (
             <div className="mb-5">
               <label className={lbl}>עיר</label>
-              <select value={draft.cityId} onChange={e => setDraft(d => ({ ...d, cityId: e.target.value }))} className={inp}>
+              <select value={cityId} onChange={e => setCityId(e.target.value)} className={inp}>
                 <option value="">— בחר עיר —</option>
                 {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
           )}
 
-          {draft.roles.includes('gabbai') && (
-            <div className="mb-5">
-              <button type="button" onClick={() => setSubLists(prev => ({ ...prev, syn: !prev.syn }))}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                <span className="flex-1 text-right">בתי כנסת מנוהלים</span>
-                <span className="text-xs font-normal text-slate-400">
-                  {draft.managedSynagogueIds.length > 0 ? `${draft.managedSynagogueIds.length} נבחרו` : 'לא נבחר'}
-                </span>
-                {subLists.syn ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </button>
-              {subLists.syn && (
-                <div className="max-h-40 overflow-y-auto border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                  {citySynagogues.length === 0 && <p className="text-xs text-slate-400 px-3 py-2">אין בתי כנסת בעיר זו</p>}
-                  {citySynagogues.map(s => (
-                    <label key={s.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
-                      <input type="checkbox" checked={draft.managedSynagogueIds.includes(s.id)}
-                        onChange={() => toggleSynagogue(s.id)} className="w-4 h-4 accent-blue-600" />
-                      {s.name}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <div className="mb-5">
+            {cat.failed
+              ? <p className="text-sm text-red-600">רשימת התפקידים לא נטענה.</p>
+              : <RolesEditor cat={cat} draft={draft} onChange={setDraft} actorRoles={actorRoles} items={cityItems(all, cityId)} />}
+          </div>
 
-          {draft.roles.includes('business_manager') && (
-            <div className="mb-5">
-              <button type="button" onClick={() => setSubLists(prev => ({ ...prev, rest: !prev.rest }))}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                <span className="flex-1 text-right">עסקים מנוהלים</span>
-                <span className="text-xs font-normal text-slate-400">
-                  {draft.managedRestaurantIds.length > 0 ? `${draft.managedRestaurantIds.length} נבחרו` : 'לא נבחר'}
-                </span>
-                {subLists.rest ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </button>
-              {subLists.rest && (
-                <div className="max-h-40 overflow-y-auto border border-t-0 border-slate-200 rounded-b-xl divide-y divide-slate-100">
-                  {cityBusinesses.length === 0 && <p className="text-xs text-slate-400 px-3 py-2">אין עסקים בעיר זו</p>}
-                  {cityBusinesses.map(b => (
-                    <label key={b.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
-                      <input type="checkbox" checked={draft.managedRestaurantIds.includes(b.id)}
-                        onChange={() => toggleBusiness(b.id)} className="w-4 h-4 accent-blue-600" />
-                      {b.name}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          {blocked && <div className="mb-4 bg-amber-50 text-amber-700 text-xs px-4 py-2.5 rounded-xl border border-amber-100">{blocked}</div>}
 
           <div className="flex gap-3">
-            <button onClick={handleSave} disabled={saving}
+            <button onClick={handleSave} disabled={saving || !!blocked || cat.failed}
               className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50">
               {saving ? 'שומר...' : 'שמור'}
             </button>
@@ -370,14 +260,20 @@ type TabKey = 'managers' | 'regular' | 'dev';
 export default function UsersPage() {
   const cat = useRoleCatalogue();
   const { appUser } = useAuth();
-  const isSuperAdmin = appUser?.role === 'super_admin';
-  const isAdmin      = appUser?.role === 'city_admin' || isSuperAdmin;
+  const actorRoles = useActorRoles();
+  const isSuperAdmin = actorRoles.includes('super_admin') || actorRoles.includes('dev');
+  // Who may open the editor at all: anyone the catalogue says can grant
+  // something — super_admin, city_admin, or a domain manager with children to
+  // appoint (synagogue_manager, mikveh_manager, kosher_manager).
+  const canManage = cat.grantableBy(actorRoles).length > 0;
+  const fullWriter = isSuperAdmin || actorRoles.includes('city_admin');
   const { cityId = '' } = useParams<{ cityId: string }>();
 
   const [allUsers, setAllUsers]     = useState<AppUser[]>([]);
   const [cities, setCities]         = useState<City[]>([]);
   const [synagogues, setSynagogues] = useState<Synagogue[]>([]);
   const [businesses, setBusinesses] = useState<business[]>([]);
+  const [mikvaot, setMikvaot]       = useState<Mikveh[]>([]);
   const [loading, setLoading]       = useState(true);
   const [tab, setTab]               = useState<TabKey>('managers');
   const [addOpen, setAddOpen]       = useState(false);
@@ -386,24 +282,28 @@ export default function UsersPage() {
   const load = async () => {
     setLoading(true);
     try {
-      // super_admin loads all users; a city_admin is scoped to their permanent
+      // super_admin loads all users; everyone else is scoped to their permanent
       // homeCityId — never the URL's cityId, which is just whatever city they
       // (or the user being managed) happen to be personally browsing right now.
+      // The same query serves a domain manager: the users read rule admits them
+      // for their own city.
       const usersQuery = isSuperAdmin
         ? query(collection(db, 'users'))
         : query(collection(db, 'users'), where('homeCityId', '==', appUser?.homeCityId ?? ''));
 
-      const [usersSnap, citiesSnap, synagoguesSnap, businessesSnap] = await Promise.all([
+      const [usersSnap, citiesSnap, synagoguesSnap, businessesSnap, mikvaotSnap] = await Promise.all([
         getDocs(usersQuery),
         getDocs(collection(db, 'cities')),
         getDocs(collection(db, 'synagogues')),
         getDocs(collection(db, 'businesses')),
+        getDocs(collection(db, 'mikvaot')),
       ]);
 
       setAllUsers(usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }) as AppUser));
       setCities(citiesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as City));
       setSynagogues(synagoguesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Synagogue));
       setBusinesses(businessesSnap.docs.map(d => ({ id: d.id, ...d.data() }) as business));
+      setMikvaot(mikvaotSnap.docs.map(d => ({ id: d.id, ...d.data() }) as Mikveh));
     } catch (err) {
       console.error('Error loading users:', err);
     } finally {
@@ -413,19 +313,23 @@ export default function UsersPage() {
 
   useEffect(() => { load(); }, [appUser?.homeCityId, isSuperAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleRoleSave = async (uid: string, draft: RoleDraft, primaryRole: UserRole, homeCityId: string) => {
-    await updateDoc(doc(db, 'users', uid), {
-      roles: draft.roles,
-      role: primaryRole,
-      managedSynagogueIds: draft.managedSynagogueIds,
-      managedRestaurantIds: draft.managedRestaurantIds,
-      cityId: draft.cityId,
-      homeCityId,
-    });
-    setAllUsers(prev => prev.map(u => u.uid === uid
-      ? { ...u, roles: draft.roles, role: primaryRole, managedSynagogueIds: draft.managedSynagogueIds, managedRestaurantIds: draft.managedRestaurantIds, cityId: draft.cityId, homeCityId }
-      : u
-    ));
+  const handleRoleSave = async (user: AppUser, draft: RoleDraft, pickedCityId: string) => {
+    // One write for a city_admin or super_admin; one write PER CHILD ROLE for a
+    // domain manager, because the delegation rule accepts exactly one role per
+    // write. See roleUpdates().
+    const updates = roleUpdates(user, draft, cat, actorRoles);
+    if (fullWriter && updates.length === 1) {
+      // The city picker only assigns a city_admin's administrative scope — it
+      // must not overwrite an existing manager's homeCityId when unrelated role
+      // fields are being edited.
+      const homeCityId = draft.roles.includes('city_admin') && isSuperAdmin
+        ? pickedCityId
+        : (user.homeCityId ?? user.cityId);
+      updates[0] = { ...updates[0], homeCityId };
+    }
+    for (const payload of updates) await updateDoc(doc(db, 'users', user.uid), payload);
+    const merged = updates.reduce((acc, p) => ({ ...acc, ...p }), {} as Record<string, unknown>);
+    setAllUsers(prev => prev.map(u => u.uid === user.uid ? { ...u, ...merged } as AppUser : u));
   };
 
   // Partition users
@@ -466,6 +370,14 @@ export default function UsersPage() {
     { key: 'dev',      label: 'צוות פיתוח',     icon: Code2,    count: devUsers.length, hidden: !isSuperAdmin },
   ];
 
+  const editButton = (row: AppUser) => canManage ? (
+    <button onClick={() => setEditUser(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
+      <Pencil size={14} />
+    </button>
+  ) : null;
+
+  const all = { synagogues, businesses, mikvaot };
+
   return (
     <div className="p-8" dir="rtl">
       {/* Header */}
@@ -474,7 +386,7 @@ export default function UsersPage() {
           <h1 className="text-2xl font-bold text-slate-800">משתמשים</h1>
           <p className="text-slate-400 text-sm mt-0.5">{visibleUsers.length} משתמשים {isSuperAdmin ? 'במערכת' : 'בעיר'}</p>
         </div>
-        {isAdmin && (
+        {canManage && (
           <button onClick={() => setAddOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white rounded-xl text-sm font-semibold hover:bg-[#15306a] transition-colors">
             <Plus size={15} /> הוסף משתמש
@@ -498,44 +410,17 @@ export default function UsersPage() {
       {loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
         <>
           {tab === 'managers' && (
-            <DataTable
-              data={withId(managerUsers)}
-              columns={columns(isSuperAdmin)}
-              searchKeys={['displayName', 'email']}
-              actions={row => isAdmin ? (
-                <button onClick={() => setEditUser(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
-                  <Pencil size={14} />
-                </button>
-              ) : null}
-            />
+            <DataTable data={withId(managerUsers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={editButton} />
           )}
           {tab === 'regular' && (
-            <DataTable
-              data={withId(regularUsers)}
-              columns={columns(isSuperAdmin)}
-              searchKeys={['displayName', 'email']}
-              actions={row => isAdmin ? (
-                <button onClick={() => setEditUser(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
-                  <Pencil size={14} />
-                </button>
-              ) : null}
-            />
+            <DataTable data={withId(regularUsers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={editButton} />
           )}
           {tab === 'dev' && isSuperAdmin && (
             <div>
               <div className="flex items-center gap-2 mb-4 text-sm text-zinc-500">
                 <Shield size={14} /> משתמשים אלו מוסתרים ממנהלי ערים
               </div>
-              <DataTable
-                data={withId(devUsers)}
-                columns={columns(true)}
-                searchKeys={['displayName', 'email']}
-                actions={row => (
-                  <button onClick={() => setEditUser(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
-                    <Pencil size={14} />
-                  </button>
-                )}
-              />
+              <DataTable data={withId(devUsers)} columns={columns(true)} searchKeys={['displayName', 'email']} actions={editButton} />
             </div>
           )}
         </>
@@ -546,9 +431,9 @@ export default function UsersPage() {
         open={addOpen}
         onClose={() => setAddOpen(false)}
         onCreated={load}
-        currentUserRole={appUser?.role ?? 'city_admin'}
         currentCityId={appUser?.homeCityId ?? cityId}
         cities={cities}
+        all={all}
       />
 
       {/* Edit role */}
@@ -557,10 +442,8 @@ export default function UsersPage() {
         user={editUser}
         onSave={handleRoleSave}
         onClose={() => setEditUser(null)}
-        currentUserRole={appUser?.role ?? 'city_admin'}
-        synagogues={synagogues}
-        businesses={businesses}
         cities={cities}
+        all={all}
       />
     </div>
   );
