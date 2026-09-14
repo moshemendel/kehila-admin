@@ -1,8 +1,9 @@
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { useMapSync, type MapMarker } from '../contexts/MapSyncContext';
+import MapTiles from './MapTiles';
 
 // ─── Icon factory ─────────────────────────────────────────────────────────────
 
@@ -124,10 +125,7 @@ export default function CityMapPanel({
         className="h-full w-full"
         zoomControl={false}
       >
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        />
+        <MapTiles />
         <MapController cityCenter={cityCenter} selectedId={selectedId} markers={markers} />
         <ZoomButtons />
         <EmptyOverlay show={markers.length === 0} />

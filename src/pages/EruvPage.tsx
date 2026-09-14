@@ -8,13 +8,14 @@ import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import type { City } from '../types';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, Polyline, Polygon, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, Polyline, Polygon, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import {
   CheckCircle2, XCircle, HelpCircle, Trash2, Undo2, RotateCcw,
   MapPin, Save, GitBranch, Scissors, Link, Plus, Bell,
 } from 'lucide-react';
 import { sendEruvStatusPush } from '../utils/push';
+import MapTiles from '../components/MapTiles';
 
 // ─── Local types ──────────────────────────────────────────────────────────────
 
@@ -525,10 +526,7 @@ export default function EruvPage() {
           ) : (
             <div className="rounded-xl overflow-hidden border border-slate-200" style={{ height: 520 }}>
               <MapContainer center={mapCenter} zoom={14} style={{ height: '100%', width: '100%' }}>
-                <TileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                />
+                <MapTiles defaultSatellite />
                 {(segmentMode === 'off' || segmentMode === 'addPoints') && (
                   <MapClickHandler onAdd={handleMapClick} />
                 )}

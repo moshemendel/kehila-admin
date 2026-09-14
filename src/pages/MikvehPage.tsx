@@ -10,14 +10,17 @@ import { useMapSync } from '../contexts/MapSyncContext';
 import type { Mikveh, MikvehType, HoursBlock, City } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
+import AddressGeocodeField from '../components/AddressGeocodeField';
 import ExcelImportModal from '../components/ExcelImportModal';
 import HoursScheduleEditor from '../components/HoursScheduleEditor';
 import { exportToExcel } from '../utils/excel';
-import { Plus, Pencil, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
+import { Plus, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
+import MapTiles from '../components/MapTiles';
 
 const TYPE_LABELS: Record<MikvehType, string> = { women: 'נשים', men: 'גברים', both: 'נשים וגברים' };
 
@@ -40,7 +43,7 @@ function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: number | nul
       zoom={lat !== null && lng !== null ? 15 : 10}
       style={{ height: '100%', width: '100%' }}
     >
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+      <MapTiles defaultSatellite />
       <MapClickHandler onPick={onPick} />
       {lat !== null && lng !== null && <Marker position={[lat, lng]} icon={PIN_ICON} />}
     </MapContainer>
@@ -66,11 +69,23 @@ export default function MikvehPage() {
   const { cityId = '' } = useParams<{ cityId: string }>();
   const { appUser } = useAuth();
   const { setMarkers } = useMapSync();
+  const cat = useRoleCatalogue();
 
   // A user can hold several roles at once — check the full array (falling back
   // to the single primary role for accounts saved before roles[] existed).
   const roles = appUser?.roles ?? (appUser?.role ? [appUser.role] : []);
-  const isAdmin = roles.some((r) => ['city_admin', 'super_admin', 'dev', 'mikveh_manager'].includes(r));
+  // Content authority, or mikveh_manager (the city-wide rung) — mirrors the
+  // mikvaot rule's two admin branches. Was a hardcoded list that had
+  // mikveh_manager but not content_admin.
+  const isAdmin = roles.some((r) => cat.byKey(r)?.content) || roles.includes('mikveh_manager');
+  // mikveh_attendant is the per-mikveh rung (attendsMikveh in the rules) — the
+  // same shape as gabbai/managedSynagogueIds on SynagoguesPage. There was no
+  // equivalent here at all: an attendant's only path to her own mikveh was an
+  // unconditional row-click that happened to succeed because the rule allows
+  // it, with no indication which mikveh was hers and no distinct affordance.
+  const isAttendant = roles.includes('mikveh_attendant');
+  const myMikvehIds = appUser?.managedMikvehIds ?? [];
+  const canEdit = (row: Mikveh) => isAdmin || (isAttendant && myMikvehIds.includes(row.id));
 
   const [data, setData] = useState<Mikveh[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,6 +98,7 @@ export default function MikvehPage() {
 
   // Neighborhood dropdown state
   const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
+  const [city, setCity] = useState<City | null>(null);
   const [addingNeighborhood, setAddingNeighborhood] = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
 
@@ -109,6 +125,7 @@ export default function MikvehPage() {
     getDoc(doc(db, 'cities', cityId)).then(snap => {
       const d = snap.data() as City | undefined;
       setNeighborhoods((d?.neighborhoods ?? []).sort(new Intl.Collator('he').compare));
+      setCity(d ?? null);
     });
   }, [cityId]);
 
@@ -266,19 +283,18 @@ export default function MikvehPage() {
 
       {loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
         <DataTable data={data} columns={columns} searchKeys={['name', 'neighborhood', 'address']}
-          onRowClick={openEdit}
-          actions={row => (
+          onRowClick={row => canEdit(row) ? openEdit(row) : undefined}
+          actions={isAdmin ? (row => (
             <div className="flex items-center gap-1">
-              <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600"><Pencil size={14} /></button>
               <button onClick={() => handleDuplicate(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="שכפל"><Copy size={14} /></button>
               <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
             </div>
-          )}
+          )) : undefined}
         />
       )}
 
       {/* Edit / Add modal */}
-      <Modal open={modalOpen} title={editing ? 'עריכת מקווה' : 'הוספת מקווה'} onClose={() => setModalOpen(false)}>
+      <Modal open={modalOpen} title={editing ? 'עריכת מקווה' : 'הוספת מקווה'} size="xl" onClose={() => setModalOpen(false)}>
         <div className="grid grid-cols-2 gap-4">
           {/* Name */}
           <Field label="שם *" colSpan><input value={form.name} onChange={f('name')} className={inp} /></Field>
@@ -317,7 +333,17 @@ export default function MikvehPage() {
           </Field>
 
           {/* Address */}
-          <Field label="כתובת" colSpan><input value={form.address} onChange={f('address')} className={inp} /></Field>
+          <Field label="כתובת" colSpan>
+            <AddressGeocodeField
+              value={form.address}
+              onChange={v => setForm(p => ({ ...p, address: v }))}
+              onPick={r => setForm(p => ({ ...p, latitude: r.latitude, longitude: r.longitude }))}
+              cityName={city?.name}
+              cityLat={city?.latitude}
+              cityLon={city?.longitude}
+              inputClassName={inp}
+            />
+          </Field>
 
           {/* Phone | Requires Appointment */}
           <Field label="טלפון (קו ישיר)"><input value={form.phone} onChange={f('phone')} type="tel" className={inp} /></Field>

@@ -33,9 +33,14 @@ export interface PendingGemach {
   status: 'pending' | 'approved' | 'rejected';
 }
 
-export type UserRole =
-  | 'user' | 'gabbai' | 'business_manager' | 'kosher_manager' | 'mikveh_manager'
-  | 'event_manager' | 'eruv_manager' | 'city_admin' | 'dev' | 'super_admin';
+/**
+ * A role key. Deliberately not a union here: the authoritative list lives in the
+ * app repo (src/utils/roleCatalogue.json, which owns firestore.rules with it)
+ * and reaches this console at runtime via config/roles — see
+ * utils/roleCatalogue.ts. A union in this file could only ever be a second copy,
+ * and the second copy is what went stale and locked content_admin out.
+ */
+export type UserRole = string;
 
 export interface AppUser {
   uid: string;
@@ -49,8 +54,14 @@ export interface AppUser {
   homeCityId?: string;
   role: UserRole;
   roles?: UserRole[];
-  managedSynagogueIds?: string[];
-  managedRestaurantIds?: string[];
+  // The per-object assignments for the tier-3 roles, one array each. Admin-
+  // written (the rules forbid self-edits and creates cannot seed them), and
+  // membership is the grant. A mashgiach's businesses are a separate array from
+  // a shop owner's because one account can be both, over different shops.
+  managedSynagogueIds?: string[];   // gabbai
+  managedRestaurantIds?: string[];  // business_manager
+  managedMikvehIds?: string[];      // mikveh_attendant
+  supervisedBusinessIds?: string[]; // mashgiach
 }
 
 export interface NusachOption {
@@ -68,7 +79,31 @@ export interface City {
   elevation?: number; // meters above sea level — used for daily mountain-angle terrain scan
   nusachOptions?: NusachOption[];
   neighborhoods?: string[];
+  /**
+   * Which parts of the app this city runs. Mirrors src/utils/modules.ts in the
+   * mobile app: absent means live, so the document records only exceptions.
+   */
+  modules?: CityModules;
 }
+
+/**
+ * A city can hold a section back or not offer it at all, and those are
+ * different things — 'soon' keeps the entry point visible with an explanation,
+ * 'off' removes it from the tabs, the shortcuts, the More screen and search.
+ * Absent means live.
+ */
+// Deliberately a plain string, not a union restated from the app.
+//
+// The app owns the list — a module is a screen, and only its source can say
+// which exist — and publishes it to config/modules, which the console renders
+// from. A union here would be a second copy that drifts, and the console would
+// then offer switches writing keys the app ignores: saved successfully, doing
+// nothing, with nothing to say so.
+export type ModuleKey = string;
+
+export type ModuleState = 'live' | 'soon' | 'off';
+
+export type CityModules = Partial<Record<ModuleKey, ModuleState>>;
 
 export type NusachType = string[];
 
@@ -79,7 +114,10 @@ export interface PrayerTimeSlot {
   anchor?: ZmanimAnchor;
   offsetMin?: number;     // minutes after anchor (negative = before)
   proportional?: boolean; // if true, offsetMin is in sha'ot zmaniyot / 60 units
-  days?: number[];        // 1=Sun … 6=Fri (7=Shabbat only in shabbat schedule)
+  days?: number[];
+  /** Specific dates "YYYY-MM-DD"; when non-empty the slot happens only on those
+   *  and `days` is ignored. See kehila-app/src/types/index.ts for rationale. */
+  dates?: string[];        // 1=Sun … 6=Fri (7=Shabbat only in shabbat schedule)
   notes?: string | null;
 }
 
@@ -87,6 +125,9 @@ export interface WeeklySchedule {
   shacharit: PrayerTimeSlot[];
   mincha:    PrayerTimeSlot[];
   maariv:    PrayerTimeSlot[];
+  /** Selichot minyanim — optional; see kehila-app/src/types/index.ts for why
+   *  these are ordinary weekday slots rather than a seasonal structure. */
+  selichot?: PrayerTimeSlot[];
   notes?: string;
 }
 
@@ -121,6 +162,9 @@ export interface SynagogueAnnouncement {
 }
 
 export interface Synagogue {
+  /** Which custom decides when this shul's selichot begin — re-derived yearly.
+   *  See kehila-app/src/types/index.ts. */
+  selichotCustom?: 'sephardi' | 'ashkenazi';
   id: string;
   cityId: string;
   name: string;
@@ -282,4 +326,33 @@ export interface PendingCommunityEvent {
   location?: string;
   organizer?: string;
   isAlert: boolean;
+}
+
+// ── Content reports — users flagging wrong info on a public listing ──────────
+// Mirrors kehila-app/src/types/index.ts — keep the two in sync.
+
+export type ReportEntityType = 'synagogue' | 'business' | 'mikveh' | 'event' | 'gemach';
+
+export type ReportReason =
+  | 'wrong_hours'
+  | 'wrong_contact'
+  | 'wrong_location'
+  | 'closed'
+  | 'wrong_details'
+  | 'other';
+
+export interface ContentReport {
+  id: string;
+  cityId: string;
+  entityType: ReportEntityType;
+  entityId: string;
+  entityName: string;
+  reason: ReportReason;
+  details?: string;
+  userId: string;
+  userName?: string;
+  status: 'open' | 'resolved' | 'dismissed';
+  handledBy?: string;
+  handledAt?: unknown;
+  createdAt?: { seconds: number } | null;
 }

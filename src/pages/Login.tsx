@@ -5,7 +5,22 @@ import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import type { UserRole } from '../types';
 
-const ALLOWED_ROLES: UserRole[] = ['super_admin', 'city_admin', 'dev', 'gabbai', 'business_manager', 'kosher_manager', 'event_manager', 'eruv_manager', 'mikveh_manager'];
+/**
+ * Who may open the console: anyone holding a role other than plain `user`.
+ *
+ * This was a list of the nine roles that existed when it was written, and it
+ * aged exactly as you would expect — content_admin was added to the app and the
+ * rules, and the one person a city_admin would delegate to was silently locked
+ * out of the tool they were delegated to use, with "אין הרשאה" and no clue why.
+ *
+ * Asked as a question instead of kept as a list, it cannot go stale: a new role
+ * is by definition not `user`, so it is admitted the day it is created. The
+ * gate here is only "is this an ordinary member" — what each role may actually
+ * do once inside is decided by firestore.rules on every read and write.
+ */
+function mayOpenConsole(roles: UserRole[]): boolean {
+  return roles.some((r) => r && r !== 'user');
+}
 
 export default function Login() {
   const [email, setEmail]     = useState('');
@@ -29,7 +44,7 @@ export default function Login() {
       // also a mikveh_manager but not primarily one.
       const data = snap.data();
       const roles = (data.roles as UserRole[] | undefined) ?? [data.role as UserRole];
-      if (!roles.some((r) => ALLOWED_ROLES.includes(r))) { setError('אין הרשאה לגשת לממשק הניהול'); auth.signOut(); return; }
+      if (!mayOpenConsole(roles)) { setError('אין הרשאה לגשת לממשק הניהול'); auth.signOut(); return; }
       navigate('/');
     } catch (err: any) {
       setError(err.code === 'auth/invalid-credential' ? 'אימייל או סיסמה שגויים' : 'שגיאה בהתחברות');

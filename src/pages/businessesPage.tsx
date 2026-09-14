@@ -11,15 +11,18 @@ import { useMapSync } from '../contexts/MapSyncContext';
 import type { business, KosherCertificate, KosherLevel, City, KashrutUpdate } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
+import AddressGeocodeField from '../components/AddressGeocodeField';
 import ExcelImportModal from '../components/ExcelImportModal';
 import { exportToExcel } from '../utils/excel';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 import { Plus, Pencil, Trash2, Upload, Download, ShieldCheck, EyeOff, ImagePlus, Star, X, MapPin, Square, CheckSquare, AlertTriangle, ArrowUpCircle } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { nanoid } from '../utils/nanoid';
 import ImageCropModal from '../components/ImageCropModal';
 import { sendPush } from '../utils/push';
+import MapTiles from '../components/MapTiles';
 
 // Admin-created certs never set certifierType (that field only exists on kehila-app's
 // richer type), so this is the name-based fallback kehila-app's own isLocalRabbanut
@@ -140,7 +143,7 @@ function MapClickHandler({ onPick }: { onPick: (lat: number, lng: number) => voi
 function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: number | null; onPick: (lat: number, lng: number) => void }) {
   return (
     <MapContainer center={lat !== null && lng !== null ? [lat, lng] : [31.5, 35.0]} zoom={lat !== null && lng !== null ? 15 : 10} style={{ height: '100%', width: '100%' }}>
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+      <MapTiles defaultSatellite />
       <MapClickHandler onPick={onPick} />
       {lat !== null && lng !== null && <Marker position={[lat, lng]} icon={PIN_ICON} />}
     </MapContainer>
@@ -271,11 +274,16 @@ export default function BusinessesPage() {
   const isOpsView      = location.pathname.endsWith('/businesses');
   const isKashrutView  = !isOpsView;
 
-  const role           = appUser?.role ?? '';
+  const cat            = useRoleCatalogue();
   // A business manager can hold other roles too — check the full roles array, not just the primary role.
   const roles          = appUser?.roles ?? (appUser?.role ? [appUser.role] : []);
   const isBizManager   = roles.includes('business_manager');
-  const isAdmin        = role === 'city_admin' || role === 'super_admin' || role === 'dev';
+  // Content authority, not account authority — a content_admin manages what the
+  // app publishes, and businesses are exactly that. Named the three roles that
+  // existed when it was written and so missed content_admin entirely; asked of
+  // the catalogue it mirrors managesContentIn() in firestore.rules, which is
+  // what actually decides whether the save goes through.
+  const isAdmin        = roles.some(r => cat.byKey(r)?.content);
   const myBizIds       = appUser?.managedRestaurantIds ?? [];
 
   // On kashrut tab: show kashrut fields + cert CRUD + add/delete
@@ -322,6 +330,7 @@ export default function BusinessesPage() {
   const [addingNeighborhood,  setAddingNeighborhood]  = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
   const [cityName, setCityName] = useState('');
+  const [cityCoords, setCityCoords] = useState<{ lat?: number; lon?: number }>({});
 
   // Map modal
   const [mapModalOpen, setMapModalOpen] = useState(false);
@@ -371,6 +380,7 @@ export default function BusinessesPage() {
       const d = snap.data() as City | undefined;
       setNeighborhoods((d?.neighborhoods ?? []).sort(new Intl.Collator('he').compare));
       setCityName(d?.name ?? '');
+      setCityCoords({ lat: d?.latitude, lon: d?.longitude });
     });
   }, [cityId]);
 
@@ -739,23 +749,17 @@ export default function BusinessesPage() {
         <DataTable
           data={data} columns={columns} searchKeys={['name', 'category', 'neighborhood', 'address']}
           onRowClick={row => canEdit(row) ? openEdit(row) : undefined}
-          actions={row => canEdit(row) ? (
-            <div className="flex items-center gap-1">
-              <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600">
-                <Pencil size={14} />
-              </button>
-              {canManageKash && (
-                <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ) : null}
+          actionsHeader="מחיקה"
+          actions={canManageKash ? (row => canEdit(row) ? (
+            <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500">
+              <Trash2 size={14} />
+            </button>
+          ) : null) : undefined}
         />
       )}
 
       {/* ── Edit / Add modal ── */}
-      <Modal open={modalOpen} title={modalTitle} onClose={() => setModalOpen(false)}>
+      <Modal open={modalOpen} title={modalTitle} size="xl" onClose={() => setModalOpen(false)}>
         <div className="space-y-4">
 
           {/* Ops view: read-only business name chip (no editing of the business name itself) */}
@@ -796,7 +800,17 @@ export default function BusinessesPage() {
                   </div>
                 )}
               </Field>
-              <Field label="כתובת" colSpan><input value={form.address} onChange={f('address')} className={inp} /></Field>
+              <Field label="כתובת" colSpan>
+                <AddressGeocodeField
+                  value={form.address}
+                  onChange={v => setForm(p => ({ ...p, address: v }))}
+                  onPick={r => setForm(p => ({ ...p, latitude: r.latitude, longitude: r.longitude }))}
+                  cityName={cityName}
+                  cityLat={cityCoords.lat}
+                  cityLon={cityCoords.lon}
+                  inputClassName={inp}
+                />
+              </Field>
 
               {/* Location with map picker */}
               <div className="col-span-2">

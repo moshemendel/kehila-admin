@@ -52,8 +52,15 @@ export async function createUserWithRole(params: {
   email: string;
   password: string;
   displayName: string;
-  role: UserRole;
   cityId: string;
+  /** Held roles, excluding the 'user' placeholder — empty for an ordinary member. */
+  roles: UserRole[];
+  /** computePrimaryRole(roles), passed in because the catalogue lives in a hook. */
+  primaryRole: UserRole;
+  /** Per-object assignments for the tier-3 roles among `roles`. */
+  assignments?: Partial<Record<
+    'managedSynagogueIds' | 'managedRestaurantIds' | 'managedMikvehIds' | 'supervisedBusinessIds',
+    string[]>>;
 }): Promise<void> {
   const secondaryApp  = getSecondaryApp();
   const secondaryAuth = getAuth(secondaryApp);
@@ -91,10 +98,15 @@ export async function createUserWithRole(params: {
     await signOut(secondaryAuth).catch(() => {});
   }
 
-  if (params.role !== 'user') {
-    await updateDoc(doc(db, 'users', user.uid), {
-      role: params.role,
-      roles: [params.role],
-    });
+  // The second write: the roles the admin chose, and their assignments. Only
+  // non-empty arrays are written — an empty one adds nothing, and for a domain
+  // manager creating an operator it would be a key outside their remit, which
+  // delegates() refuses. A city_admin's branch would accept it either way.
+  if (params.roles.length > 0) {
+    const payload: Record<string, unknown> = { role: params.primaryRole, roles: params.roles };
+    for (const [field, ids] of Object.entries(params.assignments ?? {})) {
+      if (ids && ids.length > 0) payload[field] = ids;
+    }
+    await updateDoc(doc(db, 'users', user.uid), payload);
   }
 }
