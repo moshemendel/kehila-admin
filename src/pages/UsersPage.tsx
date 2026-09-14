@@ -7,7 +7,7 @@ import type { AppUser, UserRole, City, Synagogue, business, Mikveh } from '../ty
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import RolesEditor from '../components/RolesEditor';
-import { Plus, Pencil, Shield, Code2, Users, UserCog } from 'lucide-react';
+import { Plus, Pencil, Shield, Code2, Users, UserCog, UserPlus } from 'lucide-react';
 import { createUserWithRole } from '../utils/createUser';
 import { useRoleCatalogue, chipClass } from '../utils/roleCatalogue';
 import {
@@ -175,13 +175,15 @@ function AddUserModal({ open, onClose, onCreated, currentCityId, cities, all }: 
 
 // ─── Edit role modal ──────────────────────────────────────────────────────────
 
-function EditRoleModal({ open, user, onSave, onClose, cities, all }: {
+function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }: {
   open: boolean;
   user: AppUser | null;
   onSave: (user: AppUser, draft: RoleDraft, cityId: string) => Promise<void>;
   onClose: () => void;
   cities: City[];
   all: { synagogues: Synagogue[]; businesses: business[]; mikvaot: Mikveh[] };
+  /** A domain manager appointing, rather than an admin editing. */
+  appointOnly: boolean;
 }) {
   const [draft, setDraft]   = useState<RoleDraft>(emptyDraft());
   const [cityId, setCityId] = useState('');
@@ -210,7 +212,7 @@ function EditRoleModal({ open, user, onSave, onClose, cities, all }: {
   };
 
   return (
-    <Modal open={open} title="עריכת תפקידים" onClose={onClose} size="md">
+    <Modal open={open} title={appointOnly ? 'מינוי לתפקיד' : 'עריכת תפקידים'} onClose={onClose} size="md">
       {user && (
         <>
           <div className="mb-5 p-3 bg-slate-50 rounded-xl">
@@ -262,11 +264,27 @@ export default function UsersPage() {
   const { appUser } = useAuth();
   const actorRoles = useActorRoles();
   const isSuperAdmin = actorRoles.includes('super_admin') || actorRoles.includes('dev');
-  // Who may open the editor at all: anyone the catalogue says can grant
-  // something — super_admin, city_admin, or a domain manager with children to
-  // appoint (synagogue_manager, mikveh_manager, kosher_manager).
-  const canManage = cat.grantableBy(actorRoles).length > 0;
+  // Two different things happen on this page, and they are separated by who
+  // is here.
+  //
+  // ACCOUNTS are the city_admin's (and super_admin's): creating them, and
+  // editing every role on them. content_admin has no authority over accounts
+  // by design and gets none of this — the catalogue grants it nothing, so it
+  // never reaches this page.
+  //
+  // APPOINTING is what a domain manager comes for: a synagogue_manager,
+  // mikveh_manager or kosher_manager finding an EXISTING account and giving
+  // it their domain's operator role. They see the list read-only, and the one
+  // action on a row is that appointment. They do not create accounts — not
+  // because the rules could stop it (a new account writes its own profile,
+  // as any self-registration does) but because it is not their job, and a
+  // manager who made an account "to appoint later" left an ordinary user
+  // behind that nobody asked for.
   const fullWriter = isSuperAdmin || actorRoles.includes('city_admin');
+  const appointer  = !fullWriter && cat.isDelegator(actorRoles);
+  const canCreate  = fullWriter;
+  // What an appointer may confer, by label, for the header.
+  const appointsTo = cat.grantableBy(actorRoles).map((r) => r.label).join(' / ');
   const { cityId = '' } = useParams<{ cityId: string }>();
 
   const [allUsers, setAllUsers]     = useState<AppUser[]>([]);
@@ -370,11 +388,27 @@ export default function UsersPage() {
     { key: 'dev',      label: 'צוות פיתוח',     icon: Code2,    count: devUsers.length, hidden: !isSuperAdmin },
   ];
 
-  const editButton = (row: AppUser) => canManage ? (
-    <button onClick={() => setEditUser(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
-      <Pencil size={14} />
-    </button>
-  ) : null;
+  // An appointer cannot touch an account that holds authority — the
+  // delegation rule refuses it (grantsAuthority on the existing document), so
+  // the row shows no action rather than an editor that would fail on save.
+  const holdsAuthority = (u: AppUser) =>
+    (u.roles ?? [u.role]).some((r) => cat.byKey(r)?.authority);
+
+  const rowAction = (row: AppUser) => {
+    if (fullWriter) return (
+      <button onClick={() => setEditUser(row)} title="עריכת תפקידים"
+        className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
+        <Pencil size={14} />
+      </button>
+    );
+    if (appointer && !holdsAuthority(row)) return (
+      <button onClick={() => setEditUser(row)} title={`מינוי ל${appointsTo}`}
+        className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
+        <UserPlus size={14} />
+      </button>
+    );
+    return null;
+  };
 
   const all = { synagogues, businesses, mikvaot };
 
@@ -384,9 +418,13 @@ export default function UsersPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">משתמשים</h1>
-          <p className="text-slate-400 text-sm mt-0.5">{visibleUsers.length} משתמשים {isSuperAdmin ? 'במערכת' : 'בעיר'}</p>
+          <p className="text-slate-400 text-sm mt-0.5">
+            {appointer
+              ? `בחר משתמש קיים כדי למנות אותו ל${appointsTo}`
+              : `${visibleUsers.length} משתמשים ${isSuperAdmin ? 'במערכת' : 'בעיר'}`}
+          </p>
         </div>
-        {canManage && (
+        {canCreate && (
           <button onClick={() => setAddOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white rounded-xl text-sm font-semibold hover:bg-[#15306a] transition-colors">
             <Plus size={15} /> הוסף משתמש
@@ -410,17 +448,17 @@ export default function UsersPage() {
       {loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
         <>
           {tab === 'managers' && (
-            <DataTable data={withId(managerUsers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={editButton} />
+            <DataTable data={withId(managerUsers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={rowAction} />
           )}
           {tab === 'regular' && (
-            <DataTable data={withId(regularUsers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={editButton} />
+            <DataTable data={withId(regularUsers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={rowAction} />
           )}
           {tab === 'dev' && isSuperAdmin && (
             <div>
               <div className="flex items-center gap-2 mb-4 text-sm text-zinc-500">
                 <Shield size={14} /> משתמשים אלו מוסתרים ממנהלי ערים
               </div>
-              <DataTable data={withId(devUsers)} columns={columns(true)} searchKeys={['displayName', 'email']} actions={editButton} />
+              <DataTable data={withId(devUsers)} columns={columns(true)} searchKeys={['displayName', 'email']} actions={rowAction} />
             </div>
           )}
         </>
@@ -444,6 +482,7 @@ export default function UsersPage() {
         onClose={() => setEditUser(null)}
         cities={cities}
         all={all}
+        appointOnly={appointer}
       />
     </div>
   );
