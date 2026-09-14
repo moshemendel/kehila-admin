@@ -28,6 +28,7 @@ dist-ssr
 *.sln
 *.sw?
 
-# Local API keys (Google Maps). .env.example documents what belongs here.
+# Local API keys — a real Google Maps key, and the App Check reCAPTCHA site key.
+# .env.example documents what belongs here.
 .env
 .env.local
