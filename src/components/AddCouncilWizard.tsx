@@ -149,7 +149,8 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     setLocating(true);
     setLocateError(null);
     try {
-      const hit = await geocodeLocality(name);
+      const isCouncil = localities.find(l => l.name === name)?.isCouncil ?? false;
+      const hit = await geocodeLocality(name, isCouncil);
       if (!hit) {
         setLocateError('לא נמצא מיקום לפי השם — אפשר לבחור במפה');
         return;

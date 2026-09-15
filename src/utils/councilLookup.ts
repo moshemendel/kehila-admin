@@ -188,14 +188,32 @@ export async function geocodeSettlement(
 
 /**
  * Best-effort coordinates for a locality NAME with no reference point yet —
- * step 1 of the wizard, before any centre exists to bias against. Checks the
- * government registry first (confirms it's a real, correctly-spelled
- * locality and recovers its official name), then geocodes that name
- * nationwide via Nominatim, same place-only filter as geocodeSettlement.
+ * step 1 of the wizard, before any centre exists to bias against.
+ *
+ * A regional council's bare name almost never resolves: checked live for
+ * "עמק הירדן"/"עמק המעיינות", every hit Nominatim returns is a natural
+ * feature (a valley or peak the council happens to be named after), never
+ * the council itself. But OSM does map the council as its own administrative
+ * boundary under its FULL official form — "מועצה אזורית <name>" — confirmed
+ * live across 5 councils (עמק הירדן, עמק המעיינות, גולן, מטה יהודה, מגידו),
+ * all 5 resolving cleanly once prefixed. `isCouncil` (from fetchAllLocalities
+ * — the caller already knows this from the picker) switches to that form,
+ * trying both common spellings of אזורית/איזורית.
+ *
+ * For a standalone city/local council, checks the government registry first
+ * (confirms it's real and recovers its official spelling), then geocodes
+ * that name nationwide via Nominatim.
  */
-export async function geocodeLocality(name: string): Promise<SettlementGeocodeResult | null> {
+export async function geocodeLocality(name: string, isCouncil?: boolean): Promise<SettlementGeocodeResult | null> {
   const trimmed = name.trim();
   if (!trimmed) return null;
+  if (isCouncil) {
+    for (const prefix of ['מועצה אזורית', 'מועצה איזורית']) {
+      const hit = await geocodePlaceName(`${prefix} ${trimmed}`, null);
+      if (hit) return hit;
+    }
+    return null;
+  }
   const official = await searchLocalityByName(trimmed).catch(() => null);
   return geocodePlaceName(official?.name ?? trimmed, null);
 }
