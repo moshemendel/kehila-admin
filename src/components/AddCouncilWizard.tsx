@@ -64,6 +64,12 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   const [maAngle, setMaAngle] = useState<number | null>(null);
 
   const [rows, setRows] = useState<SettlementRow[]>([]);
+  /** Which name `rows` was actually built for — null before step 2 is ever
+   *  reached. Lets the step1→2 transition tell "revisiting the same
+   *  city/council" (keep progress) apart from "switched to a different one"
+   *  (start fresh) — without this, going back and changing the name left the
+   *  previous one's rows mixed into the new one's list. */
+  const [rowsBuiltFor, setRowsBuiltFor] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
   const [localities, setLocalities] = useState<LocalityEntry[]>([]);
@@ -90,6 +96,7 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     setMaAngle(null);
     setLocateError(null);
     setRows([]);
+    setRowsBuiltFor(null);
     setSearchQuery('');
     setSearchError(null);
     setSearchResultCount(null);
@@ -146,12 +153,14 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   /** A regional council has no single "location" of its own — skip trying to
    *  geocode it and go straight to finding its settlements; the centre gets
    *  computed as their centroid once they're resolved (see
-   *  proceedToCouncilSettlements / handleGeocodeAll). Doesn't touch `rows`:
-   *  it's already [] the first time this runs (fresh wizard open), and
-   *  leaving it alone on a repeat visit — back to step 1, then this again —
-   *  means it doesn't wipe settlements already found in step 2. */
+   *  proceedToCouncilSettlements / handleGeocodeAll). Only clears `rows` when
+   *  `name` differs from whatever they were last built for — revisiting the
+   *  SAME council (back to step 1, then this again) keeps progress; switching
+   *  to a DIFFERENT one starts clean instead of mixing the two together. */
   const proceedToCouncilSettlements = (name: string) => {
     setForm(prev => ({ ...prev, name }));
+    if (rowsBuiltFor !== name) setRows([]);
+    setRowsBuiltFor(name);
     setSearchQuery(name);
     setStep('settlements');
     runSettlementSearch(name);
@@ -205,18 +214,31 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   // ── Step 1 → 2 ──────────────────────────────────────────────────────────────
 
   const goToSettlements = () => {
+    const name = form.name.trim();
     // A council's coordinates here (if any) are a computed centroid, not a
     // real point of its own — e.g. reachable by going back to step 1 after
     // the centroid already finalized, then forward again via this button
     // rather than the locate-by-name path. Route it through the same
     // council flow instead of seeding a synthetic settlement for it.
-    if (localities.find(l => l.name === form.name.trim())?.isCouncil) {
-      proceedToCouncilSettlements(form.name.trim());
+    if (localities.find(l => l.name === name)?.isCouncil) {
+      proceedToCouncilSettlements(name);
       return;
+    }
+    // Revisiting the SAME city (back to step 1, then this again) keeps
+    // whatever was already found in step 2; switching to a DIFFERENT one
+    // starts clean instead of mixing the two together.
+    const sameAsExisting = rowsBuiltFor === name;
+    setRowsBuiltFor(name);
+    if (!sameAsExisting) {
+      setSearchQuery(name);
+      // Stale from a previous city/council's search — this path doesn't
+      // re-run one itself, so nothing else would clear it.
+      setSearchResultCount(null);
+      setSearchError(null);
     }
     const centre: SettlementRow = {
       id: 'centre',
-      name: form.name.trim(),
+      name,
       latitude: parseFloat(form.latitude),
       longitude: parseFloat(form.longitude),
       elevation: form.elevation !== '' ? parseInt(form.elevation, 10) : null,
@@ -224,13 +246,13 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
       included: true,
     };
     setRows(prev => {
-      const i = prev.findIndex(r => r.id === 'centre');
-      if (i === -1) return [centre, ...prev];
-      const next = [...prev];
-      next[i] = { ...centre, cbsCode: prev[i].cbsCode }; // keep a cbsCode already merged in from a prior search
+      const base = sameAsExisting ? prev : [];
+      const i = base.findIndex(r => r.id === 'centre');
+      if (i === -1) return [centre, ...base];
+      const next = [...base];
+      next[i] = { ...centre, cbsCode: base[i].cbsCode }; // keep a cbsCode already merged in from a prior search
       return next;
     });
-    if (!searchQuery) setSearchQuery(form.name.trim());
     setStep('settlements');
   };
 
