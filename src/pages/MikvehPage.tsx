@@ -7,7 +7,7 @@ import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMapSync } from '../contexts/MapSyncContext';
-import type { Mikveh, MikvehType, HoursBlock, City } from '../types';
+import type { Mikveh, MikvehType, HoursBlock, City, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import AddressGeocodeField from '../components/AddressGeocodeField';
@@ -56,7 +56,7 @@ type ApptConfig = { slotDurationMin: number; parallelTracks: number; prepMultipl
 const EMPTY_APPT_CONFIG: ApptConfig = { slotDurationMin: 30, parallelTracks: 1, prepMultiplier: 2 };
 
 const EMPTY_FORM = {
-  name: '', type: 'women' as MikvehType, neighborhood: '', address: '',
+  name: '', type: 'women' as MikvehType, neighborhood: '', areaId: '', address: '',
   phone: '', notes: '', requiresAppointment: false,
   latitude: undefined as number | undefined,
   longitude: undefined as number | undefined,
@@ -101,6 +101,10 @@ export default function MikvehPage() {
   const [city, setCity] = useState<City | null>(null);
   const [addingNeighborhood, setAddingNeighborhood] = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
+  // Areas — a regional council's settlements, or a plain city's own one (in
+  // which case this whole layer stays hidden — the "golden rule").
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaFilter, setAreaFilter] = useState('');
 
   // Map modal state
   const [mapModalOpen, setMapModalOpen] = useState(false);
@@ -127,6 +131,10 @@ export default function MikvehPage() {
       setNeighborhoods((d?.neighborhoods ?? []).sort(new Intl.Collator('he').compare));
       setCity(d ?? null);
     });
+    getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId))).then(snap => {
+      setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Area).sort((a, b) => a.name.localeCompare(b.name, 'he')));
+    });
+    setAreaFilter('');
   }, [cityId]);
 
   const handleAddNeighborhood = async () => {
@@ -150,7 +158,7 @@ export default function MikvehPage() {
     setEditing(row);
     setPendingPick(row.latitude != null && row.longitude != null ? { lat: row.latitude, lng: row.longitude } : null);
     setForm({
-      name: row.name, type: row.type, neighborhood: row.neighborhood ?? '',
+      name: row.name, type: row.type, neighborhood: row.neighborhood ?? '', areaId: row.areaId ?? '',
       address: row.address ?? '', phone: row.phone ?? '', notes: row.notes ?? '',
       requiresAppointment: row.requiresAppointment,
       latitude: row.latitude, longitude: row.longitude,
@@ -244,10 +252,17 @@ export default function MikvehPage() {
   const removeContact = (i: number) =>
     setForm(p => p.contacts.length > 1 ? { ...p, contacts: p.contacts.filter((_, j) => j !== i) } : p);
 
+  const areaName = (id?: string) => areas.find(a => a.id === id)?.name ?? '—';
+
+  // Filtered by area BEFORE reaching DataTable — its own search box is
+  // free-text, not a dropdown filter.
+  const filteredData = areaFilter ? data.filter(r => r.areaId === areaFilter) : data;
+
   const columns: Column<Mikveh>[] = [
     { key: 'name', header: 'שם', sortable: true },
     { key: 'type', header: 'סוג', render: r => TYPE_LABELS[r.type] },
     { key: 'neighborhood', header: 'שכונה', sortable: true },
+    ...(areas.length > 1 ? [{ key: 'areaId', header: 'יישוב', render: (r: Mikveh) => areaName(r.areaId) } as Column<Mikveh>] : []),
     { key: 'address', header: 'כתובת' },
     { key: 'phone', header: 'טלפון' },
     { key: 'contactName', header: 'איש קשר', render: r => r.contacts?.[0]?.name || '—' },
@@ -281,8 +296,20 @@ export default function MikvehPage() {
         </div>
       </div>
 
+      {/* Area filter — hidden for a plain single-area city */}
+      {areas.length > 1 && (
+        <div className="flex items-center gap-2 mb-3">
+          <label className="text-xs font-semibold text-slate-500">יישוב:</label>
+          <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white">
+            <option value="">כל הישובים</option>
+            {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      )}
+
       {loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
-        <DataTable data={data} columns={columns} searchKeys={['name', 'neighborhood', 'address']}
+        <DataTable data={filteredData} columns={columns} searchKeys={['name', 'neighborhood', 'address']}
           onRowClick={row => canEdit(row) ? openEdit(row) : undefined}
           actions={isAdmin ? (row => (
             <div className="flex items-center gap-1">
@@ -331,6 +358,14 @@ export default function MikvehPage() {
               </div>
             )}
           </Field>
+          {areas.length > 1 && (
+            <Field label="יישוב">
+              <select value={form.areaId} onChange={f('areaId')} className={inp}>
+                <option value="">-- בחר יישוב --</option>
+                {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+          )}
 
           {/* Address */}
           <Field label="כתובת" colSpan>

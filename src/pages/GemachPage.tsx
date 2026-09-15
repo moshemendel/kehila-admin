@@ -6,7 +6,7 @@ import {
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import type { Gemach, GemachCategory, PendingGemach } from '../types';
+import type { Gemach, GemachCategory, PendingGemach, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import { Plus, Trash2, CheckCircle2, XCircle, Gift } from 'lucide-react';
@@ -28,7 +28,7 @@ const CATEGORIES = Object.entries(CATEGORY_LABELS) as [GemachCategory, string][]
 
 const EMPTY_FORM = {
   name: '', category: 'clothing' as GemachCategory,
-  contactName: '', phone: '', neighborhood: '',
+  contactName: '', phone: '', neighborhood: '', areaId: '',
   description: '', hours: '',
 };
 
@@ -55,6 +55,17 @@ export default function GemachPage() {
   const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
   const [addingNeighborhood, setAddingNeighborhood] = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
+  // Areas — a regional council's settlements, or a plain city's own one (in
+  // which case this whole layer stays hidden — the "golden rule").
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaFilter, setAreaFilter] = useState('');
+
+  const loadAreas = async () => {
+    if (!cityId) return;
+    const snap = await getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId)));
+    setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Area).sort((a, b) => a.name.localeCompare(b.name, 'he')));
+    setAreaFilter('');
+  };
 
   const loadNeighborhoods = async () => {
     if (!cityId) return;
@@ -97,14 +108,15 @@ export default function GemachPage() {
     }
   };
 
-  useEffect(() => { load(); loadNeighborhoods(); }, [cityId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); loadNeighborhoods(); loadAreas(); }, [cityId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openAdd = () => { setForm(EMPTY_FORM); setEditId(null); setModalOpen(true); };
   const openEdit = (g: Gemach) => {
     setForm({
       name: g.name, category: g.category,
       contactName: g.contactName ?? '', phone: g.phone ?? '',
-      neighborhood: g.neighborhood ?? '', description: g.description ?? '',
+      neighborhood: g.neighborhood ?? '', areaId: g.areaId ?? '',
+      description: g.description ?? '',
       hours: g.hours ?? '',
     });
     setEditId(g.id);
@@ -182,11 +194,18 @@ export default function GemachPage() {
     }
   };
 
+  const areaName = (id?: string) => areas.find(a => a.id === id)?.name ?? '—';
+
+  // Filtered by area BEFORE reaching DataTable — its own search box is
+  // free-text, not a dropdown filter.
+  const filteredGemachs = areaFilter ? gemachs.filter(g => g.areaId === areaFilter) : gemachs;
+
   const gemachCols: Column<Gemach>[] = [
     { key: 'name',     header: 'שם הגמ"ח' },
     { key: 'category', header: 'קטגוריה',  render: g => CATEGORY_LABELS[g.category] },
     { key: 'phone',    header: 'טלפון',    render: g => g.phone ?? '—' },
     { key: 'neighborhood', header: 'שכונה', render: g => g.neighborhood ?? '—' },
+    ...(areas.length > 1 ? [{ key: 'areaId', header: 'יישוב', render: (g: Gemach) => areaName(g.areaId) } as Column<Gemach>] : []),
     { key: 'isActive', header: 'פעיל',     render: g => (
       <button
         onClick={() => toggleActive(g)}
@@ -242,12 +261,24 @@ export default function GemachPage() {
         ))}
       </div>
 
+      {/* Area filter — hidden for a plain single-area city */}
+      {tab === 'published' && areas.length > 1 && (
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-semibold text-slate-500">יישוב:</label>
+          <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white">
+            <option value="">כל הישובים</option>
+            {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Published list */}
       {tab === 'published' && (
         loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
           <DataTable
             columns={gemachCols}
-            data={gemachs}
+            data={filteredGemachs}
             onRowClick={isAdmin ? openEdit : undefined}
             actionsHeader="מחיקה"
             actions={isAdmin ? (g) => (
@@ -384,6 +415,19 @@ export default function GemachPage() {
               />
             </div>
           </div>
+
+          {areas.length > 1 && (
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">יישוב</label>
+              <select
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                value={form.areaId} onChange={e => setForm(p => ({ ...p, areaId: e.target.value }))}
+              >
+                <option value="">-- בחר יישוב --</option>
+                {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1">תיאור</label>

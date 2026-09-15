@@ -3,7 +3,7 @@ import { collection, getDocs, query, where, doc, deleteDoc, updateDoc, addDoc, s
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import type { CommunityEvent, EventCategory, PendingCommunityEvent, City } from '../types';
+import type { CommunityEvent, EventCategory, PendingCommunityEvent, City, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import { Plus, Trash2, CheckCircle2, XCircle } from 'lucide-react';
@@ -16,7 +16,7 @@ const CATEGORY_LABELS: Record<EventCategory, string> = {
 
 const EMPTY_FORM = {
   title: '', description: '', category: 'shiur' as EventCategory,
-  startDate: '', location: '', isAlert: false,
+  startDate: '', location: '', isAlert: false, areaId: '',
 };
 
 interface PendingEvent extends PendingCommunityEvent { id: string; }
@@ -45,6 +45,10 @@ export default function EventsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [cityName, setCityName] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  // Areas — a regional council's settlements, or a plain city's own one (in
+  // which case this whole layer stays hidden — the "golden rule").
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [areaFilter, setAreaFilter] = useState('');
 
   const load = async () => {
     if (!cityId) return;
@@ -77,6 +81,10 @@ export default function EventsPage() {
       const d = snap.data() as City | undefined;
       setCityName(d?.name ?? '');
     });
+    getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId))).then(snap => {
+      setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Area).sort((a, b) => a.name.localeCompare(b.name, 'he')));
+    });
+    setAreaFilter('');
   }, [cityId]);
 
   const closeCreateModal = () => {
@@ -163,9 +171,12 @@ export default function EventsPage() {
     }
   };
 
+  const areaName = (id?: string) => areas.find(a => a.id === id)?.name ?? '—';
+
   const columns: Column<CommunityEvent>[] = [
     { key: 'title', header: 'כותרת', sortable: true },
     { key: 'category', header: 'קטגוריה', render: r => CATEGORY_LABELS[r.category] ?? r.category },
+    ...(areas.length > 1 ? [{ key: 'areaId', header: 'יישוב', render: (r: CommunityEvent) => areaName(r.areaId) } as Column<CommunityEvent>] : []),
     { key: 'startDate', header: 'תאריך', render: r => r.startDate ? new Date(r.startDate).toLocaleDateString('he-IL') : '—' },
     { key: 'location', header: 'מיקום' },
     { key: 'isAlert', header: 'דחוף', render: r => r.isAlert ? <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full border border-red-100">דחוף</span> : null },
@@ -189,8 +200,9 @@ export default function EventsPage() {
 
   // Events without a start date can't be judged expired, so they stay in "upcoming".
   const now = new Date();
-  const upcomingEvents = events.filter(e => !e.startDate || new Date(e.startDate) >= now);
-  const expiredEvents  = events.filter(e => e.startDate && new Date(e.startDate) < now);
+  const areaFiltered = (list: CommunityEvent[]) => areaFilter ? list.filter(e => e.areaId === areaFilter) : list;
+  const upcomingEvents = areaFiltered(events.filter(e => !e.startDate || new Date(e.startDate) >= now));
+  const expiredEvents  = areaFiltered(events.filter(e => e.startDate && new Date(e.startDate) < now));
 
   return (
     <div className="p-8" dir="rtl">
@@ -214,6 +226,18 @@ export default function EventsPage() {
           </button>
         ))}
       </div>
+
+      {/* Area filter — hidden for a plain single-area city */}
+      {areas.length > 1 && (
+        <div className="flex items-center gap-2 mb-4">
+          <label className="text-xs font-semibold text-slate-500">יישוב:</label>
+          <select value={areaFilter} onChange={e => setAreaFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white">
+            <option value="">כל הישובים</option>
+            {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </div>
+      )}
 
       {error ? (
         <div className="text-center py-16 text-red-500 text-sm">
@@ -266,6 +290,14 @@ export default function EventsPage() {
             <input value={form.startDate} onChange={f('startDate')} type="datetime-local" className={fieldCls(missingStartDate)} />
           </Field>
           <Field label="מיקום *" colSpan><input value={form.location} onChange={f('location')} className={fieldCls(missingLocation)} /></Field>
+          {areas.length > 1 && (
+            <Field label="יישוב">
+              <select value={form.areaId} onChange={f('areaId')} className={inp}>
+                <option value="">-- בחר יישוב --</option>
+                {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+          )}
           <Field label="תיאור" colSpan>
             <textarea value={form.description} onChange={f('description')} rows={3} className={`${inp} resize-none`} />
           </Field>

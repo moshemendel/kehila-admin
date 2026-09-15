@@ -5,6 +5,9 @@ export type GemachCategory =
 export interface Gemach {
   id: string;
   cityId: string;
+  /** Which of the tenant's areas this gemach is in. Mirrors the same field on
+   *  business/Synagogue/Mikveh/Cemetery. */
+  areaId?: string;
   name: string;
   category: GemachCategory;
   description?: string;
@@ -228,6 +231,9 @@ export interface AppointmentConfig {
 export interface Mikveh {
   id: string;
   cityId: string;
+  /** Which of the tenant's areas this mikveh is in. Mirrors kehila-app's
+   *  Mikveh.areaId. */
+  areaId?: string;
   name: string;
   type: MikvehType;
   neighborhood?: string;
@@ -301,6 +307,9 @@ export type EventCategory = 'shiur' | 'community' | 'youth' | 'charity' | 'holid
 export interface CommunityEvent {
   id: string;
   cityId: string;
+  /** Which of the tenant's areas this event is in/for. Mirrors kehila-app's
+   *  CommunityEvent.areaId. */
+  areaId?: string;
   title: string;
   description: string;
   category: EventCategory;
