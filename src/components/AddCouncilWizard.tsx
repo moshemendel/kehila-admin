@@ -143,14 +143,31 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     }
   };
 
+  /** A regional council has no single "location" of its own — skip trying to
+   *  geocode it and go straight to finding its settlements; the centre gets
+   *  computed as their centroid once they're resolved (see
+   *  proceedToCouncilSettlements / handleGeocodeAll). Doesn't touch `rows`:
+   *  it's already [] the first time this runs (fresh wizard open), and
+   *  leaving it alone on a repeat visit — back to step 1, then this again —
+   *  means it doesn't wipe settlements already found in step 2. */
+  const proceedToCouncilSettlements = (name: string) => {
+    setForm(prev => ({ ...prev, name }));
+    setSearchQuery(name);
+    setStep('settlements');
+    runSettlementSearch(name);
+  };
+
   const handleLocateCentre = async (nameOverride?: string) => {
     const name = (nameOverride ?? form.name).trim();
     if (!name) return;
+    if (localities.find(l => l.name === name)?.isCouncil) {
+      proceedToCouncilSettlements(name);
+      return;
+    }
     setLocating(true);
     setLocateError(null);
     try {
-      const isCouncil = localities.find(l => l.name === name)?.isCouncil ?? false;
-      const hit = await geocodeLocality(name, isCouncil);
+      const hit = await geocodeLocality(name);
       if (!hit) {
         setLocateError('לא נמצא מיקום לפי השם — אפשר לבחור במפה');
         return;
@@ -188,6 +205,15 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   // ── Step 1 → 2 ──────────────────────────────────────────────────────────────
 
   const goToSettlements = () => {
+    // A council's coordinates here (if any) are a computed centroid, not a
+    // real point of its own — e.g. reachable by going back to step 1 after
+    // the centroid already finalized, then forward again via this button
+    // rather than the locate-by-name path. Route it through the same
+    // council flow instead of seeding a synthetic settlement for it.
+    if (localities.find(l => l.name === form.name.trim())?.isCouncil) {
+      proceedToCouncilSettlements(form.name.trim());
+      return;
+    }
     const centre: SettlementRow = {
       id: 'centre',
       name: form.name.trim(),
@@ -210,8 +236,8 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
 
   // ── Step 2: search, manual add, geocode ─────────────────────────────────────
 
-  const handleSearch = async () => {
-    const q = searchQuery.trim();
+  const runSettlementSearch = async (query: string) => {
+    const q = query.trim();
     if (!q) return;
     setSearching(true);
     setSearchError(null);
@@ -250,12 +276,43 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     }
   };
 
+  const handleSearch = () => runSettlementSearch(searchQuery);
+
   const addManualRow = () => setRows(prev => [...prev, {
     id: `manual-${nanoid(8)}`, name: '', latitude: null, longitude: null,
     elevation: null, status: 'pending', included: true,
   }]);
 
   const removeRow = (id: string) => setRows(prev => prev.filter(r => r.id !== id));
+
+  /** null when there's no centre yet — a regional council skips step 1
+   *  entirely (see proceedToCouncilSettlements), so this is normal until the
+   *  centroid finalizes below, not a fallback for something gone wrong. */
+  const currentCentre = (): { latitude: number; longitude: number } | null =>
+    form.latitude && form.longitude
+      ? { latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude) }
+      : null;
+
+  /** Once a regional council's settlements are geocoded, its centre is their
+   *  centroid — simpler and more meaningful than geocoding the council name
+   *  itself (which rarely resolves to anything but a same-named natural
+   *  feature). Only fires when nothing has set a centre already, by any
+   *  other means, so it never overrides a real one. */
+  const finalizeCentroidIfNeeded = async (finalRows: SettlementRow[]) => {
+    if (form.latitude || form.longitude) return;
+    const points = finalRows.filter(r => r.included && r.latitude != null && r.longitude != null);
+    if (!points.length) return;
+    const avgLat = points.reduce((s, r) => s + r.latitude!, 0) / points.length;
+    const avgLon = points.reduce((s, r) => s + r.longitude!, 0) / points.length;
+    setForm(prev => ({ ...prev, latitude: avgLat.toFixed(6), longitude: avgLon.toFixed(6) }));
+    setElevLoading(true);
+    const elev = await resolveElevation(avgLat, avgLon);
+    setElevLoading(false);
+    if (elev != null) setForm(prev => ({ ...prev, elevation: String(elev) }));
+    setMaLoading(true);
+    try { setMaAngle(await calcMountainAngle(avgLat, avgLon, elev ?? 0)); } catch { /* fail silently */ }
+    finally { setMaLoading(false); }
+  };
 
   /** Re-tries just one failed row — Nominatim occasionally misses on a transient
    *  blip that a moment later succeeds; re-running the whole batch already
@@ -265,14 +322,18 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     if (!row || !row.name.trim()) return;
     setRetryingId(id);
     try {
-      const centre = { latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude) };
-      const hit = await geocodeSettlement(row.name, centre).catch(() => null);
-      setRows(prev => prev.map(r => r.id !== id ? r : hit
-        ? { ...r, latitude: hit.latitude, longitude: hit.longitude, status: 'resolved' as const }
-        : { ...r, status: 'not-found' as const }));
+      const hit = await geocodeSettlement(row.name, currentCentre()).catch(() => null);
+      let working: SettlementRow[] = [];
+      setRows(prev => {
+        working = prev.map(r => r.id !== id ? r : hit
+          ? { ...r, latitude: hit.latitude, longitude: hit.longitude, status: 'resolved' as const }
+          : { ...r, status: 'not-found' as const });
+        return working;
+      });
       if (hit) {
         const elev = await resolveElevation(hit.latitude, hit.longitude);
         if (elev != null) setRows(prev => prev.map(r => r.id === id ? { ...r, elevation: elev } : r));
+        await finalizeCentroidIfNeeded(working);
       }
     } finally {
       setRetryingId(null);
@@ -280,7 +341,7 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   };
 
   const handleGeocodeAll = async () => {
-    const centre = { latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude) };
+    const centre = currentCentre();
     const targets = rows.filter(r => r.included && r.id !== 'centre' && r.status !== 'resolved' && r.name.trim());
     if (!targets.length) return;
     setGeocoding(true);
@@ -301,11 +362,13 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     const need = working.filter(r => r.included && r.latitude != null && r.longitude != null && r.elevation == null);
     if (need.length) {
       const elevs = await batchElevations(need.map(r => ({ latitude: r.latitude!, longitude: r.longitude! })));
-      setRows(curr => curr.map(r => {
+      working = working.map(r => {
         const idx = need.findIndex(n => n.id === r.id);
         return idx === -1 ? r : { ...r, elevation: elevs[idx] };
-      }));
+      });
+      setRows(working);
     }
+    await finalizeCentroidIfNeeded(working);
   };
 
   const includedRows = rows.filter(r => r.included);
@@ -317,6 +380,7 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   // ── Step 3: confirm & write ──────────────────────────────────────────────────
 
   const handleConfirm = async () => {
+    if (!form.latitude || !form.longitude) return; // council centroid never finalized (e.g. nothing geocoded)
     if (includedRows.some(r => r.latitude == null || r.longitude == null)) return;
     setSaving(true);
     try {
@@ -636,7 +700,7 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
             <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
               <button
                 onClick={handleConfirm}
-                disabled={saving || includedRows.length === 0 || includedRows.some(r => r.latitude == null || r.longitude == null)}
+                disabled={saving || !form.latitude || !form.longitude || includedRows.length === 0 || includedRows.some(r => r.latitude == null || r.longitude == null)}
                 className={primaryBtn}
               >
                 {saving ? 'שומר...' : 'אישור ויצירה'}
