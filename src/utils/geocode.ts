@@ -14,6 +14,12 @@ export interface GeocodeResult {
   longitude: number;
   /** Full formatted address as Nominatim resolved it, for confirming the hit. */
   label: string;
+  /** Nominatim's class/type for this hit (e.g. class 'place' type 'village') —
+   *  populated so a caller distinguishing a real settlement from a street/POI
+   *  sharing its name can filter on it (see utils/councilLookup.ts). Address
+   *  lookups can ignore these. */
+  class?: string;
+  type?: string;
 }
 
 export interface GeocodeBias {
@@ -42,7 +48,7 @@ const debugOn = () => {
   try { return localStorage.getItem('geocodeDebug') === '1'; } catch { return false; }
 };
 
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -71,6 +77,7 @@ export async function geocodeAddress(
   address: string,
   bias: GeocodeBias = {},
   limit = 5,
+  maxDistanceKm: number = MAX_DISTANCE_KM,
 ): Promise<GeocodeResult[]> {
   if (!address.trim()) return [];
   const q = [address.trim(), bias.cityName].filter(Boolean).join(', ');
@@ -102,7 +109,7 @@ export async function geocodeAddress(
     throw new Error(`שגיאת שירות המפות (${res.status})`);
   }
 
-  const rows = (await res.json()) as Array<{ lat: string; lon: string; display_name: string }>;
+  const rows = (await res.json()) as Array<{ lat: string; lon: string; display_name: string; class?: string; type?: string }>;
   if (debug) console.log('raw results', rows.length, rows.map(r => r.display_name));
 
   const parsed = rows
@@ -110,6 +117,8 @@ export async function geocodeAddress(
       latitude: parseFloat(r.lat),
       longitude: parseFloat(r.lon),
       label: r.display_name,
+      class: r.class,
+      type: r.type,
     }))
     .filter(r => Number.isFinite(r.latitude) && Number.isFinite(r.longitude));
 
@@ -123,11 +132,11 @@ export async function geocodeAddress(
   const kept: GeocodeResult[] = [];
   for (const r of parsed) {
     const km = haversineKm(bias.latitude as number, bias.longitude as number, r.latitude, r.longitude);
-    if (km <= MAX_DISTANCE_KM) {
+    if (km <= maxDistanceKm) {
       kept.push(r);
       if (debug) console.log(`✓ ${km.toFixed(1)} km — ${r.label}`);
     } else if (debug) {
-      console.log(`✗ ${km.toFixed(1)} km (over ${MAX_DISTANCE_KM}) — ${r.label}`);
+      console.log(`✗ ${km.toFixed(1)} km (over ${maxDistanceKm}) — ${r.label}`);
     }
   }
   if (debug) { console.log('kept', kept.length, 'of', parsed.length); console.groupEnd(); }

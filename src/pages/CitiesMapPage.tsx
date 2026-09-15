@@ -1,7 +1,7 @@
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { getCountFromServer } from 'firebase/firestore';
 import { MapContainer, Marker, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useCityContext } from '../contexts/CityContext';
 import type { City } from '../types';
 import Modal from '../components/Modal';
-import { nanoid } from '../utils/nanoid';
+import AddCouncilWizard from '../components/AddCouncilWizard';
 import { Search, ArrowLeft, X, Plus, Pencil, Trash2, ExternalLink, MapPin } from 'lucide-react';
 import MapTiles from '../components/MapTiles';
 
@@ -131,13 +131,13 @@ export default function CitiesMapPage() {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [actionCity, setActionCity]   = useState<CityWithStats | null>(null);
 
-  const [addOpen, setAddOpen]         = useState(false);
+  const [wizardOpen, setWizardOpen]   = useState(false);
   const [editOpen, setEditOpen]       = useState(false);
   const [deleteOpen, setDeleteOpen]   = useState(false);
   const [form, setForm]               = useState<FormState>(EMPTY);
   const [saving, setSaving]           = useState(false);
   const [coordPickMode, setCoordPickMode] = useState(false);
-  const [pendingModal, setPendingModal]   = useState<'add' | 'edit' | null>(null);
+  const [pendingModal, setPendingModal]   = useState<'edit' | null>(null);
   const [elevLoading, setElevLoading]     = useState(false);
   const [maLoading, setMaLoading]         = useState(false);
   const [previewMa, setPreviewMa]         = useState<number | null>(null);
@@ -215,17 +215,15 @@ export default function CitiesMapPage() {
 
   const closeAction = useCallback(() => setActionCity(null), []);
 
-  const enterPickMode = (fromModal: 'add' | 'edit') => {
-    if (fromModal === 'add') setAddOpen(false);
-    if (fromModal === 'edit') setEditOpen(false);
+  const enterPickMode = (fromModal: 'edit') => {
+    setEditOpen(false);
     setPendingModal(fromModal);
     setCoordPickMode(true);
   };
 
   const cancelPickMode = useCallback(() => {
     setCoordPickMode(false);
-    if (pendingModal === 'add') setAddOpen(true);
-    else if (pendingModal === 'edit') setEditOpen(true);
+    if (pendingModal === 'edit') setEditOpen(true);
     setPendingModal(null);
   }, [pendingModal]);
 
@@ -233,7 +231,6 @@ export default function CitiesMapPage() {
     if (coordPickMode) {
       setForm(prev => ({ ...prev, latitude: lat.toFixed(6), longitude: lng.toFixed(6), elevation: '' }));
       setCoordPickMode(false);
-      if (pendingModal === 'add') setAddOpen(true);
       if (pendingModal === 'edit') setEditOpen(true);
       setPendingModal(null);
       fetchAndSetElevation(lat, lng);
@@ -264,8 +261,6 @@ export default function CitiesMapPage() {
 
   // ── CRUD ─────────────────────────────────────────────────────────────────────
 
-  const openAdd = () => { setForm(EMPTY); setPreviewMa(null); setAddOpen(true); };
-
   const openEdit = (city: CityWithStats) => {
     setForm({
       name: city.name, country: city.country ?? 'ישראל',
@@ -277,29 +272,6 @@ export default function CitiesMapPage() {
     setEditOpen(true);
     // Auto-compute today's mountain angle preview
     computeAndSetMa(city.latitude, city.longitude, city.elevation ?? 0);
-  };
-
-  const handleAdd = async () => {
-    if (!form.name.trim() || !form.latitude || !form.longitude) return;
-    setSaving(true);
-    try {
-      const id = nanoid(16);
-      await setDoc(doc(db, 'cities', id), {
-        name: form.name.trim(),
-        country: form.country.trim() || 'ישראל',
-        timezone: form.timezone.trim() || 'Asia/Jerusalem',
-        latitude: parseFloat(form.latitude),
-        longitude: parseFloat(form.longitude),
-        ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
-      });
-      setAddOpen(false);
-      setForm(EMPTY);
-      load();
-    } catch (e: any) {
-      alert(e?.message ?? 'שגיאה בשמירה');
-    } finally {
-      setSaving(false);
-    }
   };
 
   const handleEdit = async () => {
@@ -511,11 +483,11 @@ export default function CitiesMapPage() {
       {/* ── Add city button (super_admin only) ── */}
       {isSuperAdmin && (
         <button
-          onClick={openAdd}
+          onClick={() => setWizardOpen(true)}
           className="absolute bottom-6 right-4 z-[1000] flex items-center gap-2 bg-[#1B3A6B] text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-lg hover:bg-[#15306a] transition-colors"
         >
           <Plus size={15} />
-          הוסף עיר
+          הוסף עיר / מועצה
         </button>
       )}
 
@@ -549,26 +521,12 @@ export default function CitiesMapPage() {
         </div>
       )}
 
-      {/* ── Add modal ── */}
-      <Modal open={addOpen} title="הוספת עיר" onClose={() => setAddOpen(false)}>
-        <CityForm form={form} setForm={setForm} onPickMap={() => enterPickMode('add')} elevLoading={elevLoading} maLoading={maLoading} maAngle={previewMa} />
-        <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
-          <button
-            onClick={handleAdd}
-            disabled={saving || !form.name.trim() || !form.latitude || !form.longitude}
-            className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50 transition-colors"
-          >
-            {saving ? 'שומר...' : 'הוסף עיר'}
-          </button>
-          <button onClick={() => setAddOpen(false)} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">
-            ביטול
-          </button>
-        </div>
-      </Modal>
+      {/* ── Add council wizard ── */}
+      <AddCouncilWizard open={wizardOpen} onClose={() => setWizardOpen(false)} onDone={load} />
 
       {/* ── Edit modal ── */}
       <Modal open={editOpen} title={`עריכת ${actionCity?.name ?? 'עיר'}`} onClose={() => setEditOpen(false)}>
-        <CityForm form={form} setForm={setForm} onPickMap={() => enterPickMode('edit')} elevLoading={elevLoading} />
+        <CityForm form={form} setForm={setForm} onPickMap={() => enterPickMode('edit')} elevLoading={elevLoading} maLoading={maLoading} maAngle={previewMa} />
         <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
           <button
             onClick={handleEdit}

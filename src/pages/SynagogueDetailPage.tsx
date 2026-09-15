@@ -424,12 +424,12 @@ const PIN_ICON = L.divIcon({
   iconAnchor: [11, 11],
 });
 
-function MapClickHandler({ onPick }: { onPick: (lat: number, lng: number) => void }) {
+export function MapClickHandler({ onPick }: { onPick: (lat: number, lng: number) => void }) {
   useMapEvents({ click: e => onPick(e.latlng.lat, e.latlng.lng) });
   return null;
 }
 
-function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: number | null; onPick: (lat: number, lng: number) => void }) {
+export function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: number | null; onPick: (lat: number, lng: number) => void }) {
   const center: [number, number] = (lat && lng) ? [lat, lng] : [31.7683, 35.2137];
   return (
     <MapContainer center={center} zoom={(lat && lng) ? 16 : 11} className="w-full h-full rounded-xl" zoomControl>

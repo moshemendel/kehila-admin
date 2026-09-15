@@ -383,11 +383,22 @@ export interface Area {
   name: string;
   latitude: number;
   longitude: number;
+  elevation?: number;
+  /** Presence-detection radius in km. */
+  radiusKm?: number;
   isDefault?: boolean;
   /** Official CBS locality code — used to look up its official street list
    *  (utils/officialStreets.ts). Absent for a city neighbourhood, which the
    *  state has no code for. */
   cbsCode?: string;
+  /** For a neighbourhood nested inside another area, if that's ever needed.
+   *  Every area imported or backfilled so far is top-level (null). */
+  parentId?: string | null;
+  /** Where this area's identity came from: the data.gov.il locality register
+   *  when cbsCode is known, 'manual' for an admin-entered settlement with
+   *  none, or 'backfill' for a plain city's pre-existing default area.
+   *  Admin-only provenance — kehila-app's own Area mirror doesn't carry it. */
+  source?: string;
 }
 
 // ── Cemeteries ────────────────────────────────────────────────────────────────
