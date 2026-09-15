@@ -568,7 +568,7 @@ export default function CitiesMapPage() {
 
 // ─── Shared form component ────────────────────────────────────────────────────
 
-export function CityForm({ form, setForm, onPickMap, elevLoading, maLoading, maAngle }: { form: FormState; setForm: (f: FormState) => void; onPickMap?: () => void; elevLoading?: boolean; maLoading?: boolean; maAngle?: number | null }) {
+export function CityForm({ form, setForm, onPickMap, elevLoading, maLoading, maAngle, afterName }: { form: FormState; setForm: (f: FormState) => void; onPickMap?: () => void; elevLoading?: boolean; maLoading?: boolean; maAngle?: number | null; afterName?: React.ReactNode }) {
   const f = (k: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [k]: e.target.value });
   const inp = 'w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400';
@@ -576,9 +576,10 @@ export function CityForm({ form, setForm, onPickMap, elevLoading, maLoading, maA
   return (
     <div className="grid grid-cols-2 gap-4" dir="rtl">
       <div className="col-span-2">
-        <label className="block text-xs font-semibold text-slate-600 mb-1.5">שם העיר *</label>
-        <input value={form.name} onChange={f('name')} placeholder="מעלה אדומים" className={inp} />
+        <label className="block text-xs font-semibold text-slate-600 mb-1.5">שם הרשות *</label>
+        <input value={form.name} onChange={f('name')} placeholder="ירושלים" className={inp} />
       </div>
+      {afterName && <div className="col-span-2">{afterName}</div>}
       <div>
         <label className="block text-xs font-semibold text-slate-600 mb-1.5">מדינה</label>
         <input value={form.country} onChange={f('country')} className={inp} />
@@ -586,14 +587,6 @@ export function CityForm({ form, setForm, onPickMap, elevLoading, maLoading, maA
       <div>
         <label className="block text-xs font-semibold text-slate-600 mb-1.5">אזור זמן</label>
         <input value={form.timezone} onChange={f('timezone')} placeholder="Asia/Jerusalem" className={inp} />
-      </div>
-      <div>
-        <label className="block text-xs font-semibold text-slate-600 mb-1.5">קו רוחב *</label>
-        <input value={form.latitude} onChange={f('latitude')} type="number" step="any" placeholder="31.77" className={inp} />
-      </div>
-      <div>
-        <label className="block text-xs font-semibold text-slate-600 mb-1.5">קו אורך *</label>
-        <input value={form.longitude} onChange={f('longitude')} type="number" step="any" placeholder="35.24" className={inp} />
       </div>
       {onPickMap && (
         <div className="col-span-2">
@@ -607,6 +600,14 @@ export function CityForm({ form, setForm, onPickMap, elevLoading, maLoading, maA
           </button>
         </div>
       )}
+      <div>
+        <label className="block text-xs font-semibold text-slate-600 mb-1.5">קו רוחב *</label>
+        <input value={form.latitude} onChange={f('latitude')} type="number" step="any" placeholder="31.77" className={inp} />
+      </div>
+      <div>
+        <label className="block text-xs font-semibold text-slate-600 mb-1.5">קו אורך *</label>
+        <input value={form.longitude} onChange={f('longitude')} type="number" step="any" placeholder="35.24" className={inp} />
+      </div>
       <div>
         <label className="block text-xs font-semibold text-slate-600 mb-1.5">גובה מ"מ (מ')</label>
         <div className="relative">
