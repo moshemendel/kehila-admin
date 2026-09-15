@@ -58,7 +58,7 @@ export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: numb
 }
 
 /**
- * Deliberately NO country in the query.
+ * Deliberately NO country as TEXT in the query.
  *
  * Appending one breaks the pilot city: OSM files מעלה אדומים under
  * "יהודה ושומרון / الأراضي الفلسطينية", not Israel, so "…, Israel" returns zero
@@ -67,6 +67,21 @@ export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: numb
  * how OSM happens to classify the territory.
  */
 const VIEWBOX_DEGREES = 0.15;
+
+/**
+ * Nominatim's own `countrycodes` FILTER (unlike the text form above, a
+ * structured param Nominatim applies before ranking) — a different
+ * mechanism, and both codes are required. Checked live: מעלה אדומים itself
+ * resolves only under 'ps' (West Bank), not 'il' — 'il' alone would silently
+ * exclude the pilot city and, going the other way, this is what actually
+ * caught a real bug: geocoding "מיטל" (a real kibbutz, no bias centre yet
+ * since a regional council's settlements are geocoded before any centre
+ * exists — see councilLookup.ts) unrestricted matched a same-named village
+ * in Romania first, classed place/village same as a real settlement, so the
+ * class-only filter elsewhere couldn't catch it — averaged into a council's
+ * centroid, one such miss is enough to land it in the sea off Lebanon.
+ */
+const COUNTRY_CODES = 'il,ps';
 
 /**
  * Look up an address. Returns the best matches, most confident first — an empty
@@ -85,6 +100,7 @@ export async function geocodeAddress(
   const url = new URL('https://nominatim.openstreetmap.org/search');
   url.searchParams.set('q', q);
   url.searchParams.set('format', 'json');
+  url.searchParams.set('countrycodes', COUNTRY_CODES);
   url.searchParams.set('limit', String(limit));
   // Prefer Hebrew names in the returned label, matching the rest of the UI.
   url.searchParams.set('accept-language', 'he');
