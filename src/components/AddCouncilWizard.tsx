@@ -5,7 +5,7 @@
 // more → 'regional_council'.
 import { useEffect, useState } from 'react';
 import { writeBatch, doc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { MapPin, Search, Plus, X, Loader2 } from 'lucide-react';
+import { MapPin, Search, Plus, X, Loader2, RotateCw } from 'lucide-react';
 import { db } from '../firebase';
 import { nanoid } from '../utils/nanoid';
 import Modal from './Modal';
@@ -15,6 +15,7 @@ import {
   searchCouncilSettlements,
   searchLocalityByName,
   geocodeSettlement,
+  geocodeLocality,
   batchElevations,
   LOCALITIES_RESOURCE,
 } from '../utils/councilLookup';
@@ -61,11 +62,16 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   const [maAngle, setMaAngle] = useState<number | null>(null);
 
   const [rows, setRows] = useState<SettlementRow[]>([]);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<string | null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchResultCount, setSearchResultCount] = useState<number | null>(null);
   const [geocoding, setGeocoding] = useState(false);
   const [geocodeProgress, setGeocodeProgress] = useState<{ done: number; total: number } | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   /** 'centre' or a row id — the nested map-pick modal target. Also guards the
    *  outer Modal's Escape/backdrop close while it's open (Modal.tsx registers
@@ -79,10 +85,13 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     setStep('basics');
     setForm(EMPTY_FORM);
     setMaAngle(null);
+    setLocateError(null);
     setRows([]);
     setSearchQuery('');
     setSearchError(null);
+    setSearchResultCount(null);
     setGeocodeProgress(null);
+    setRetryingId(null);
     setMapPickTarget(null);
   }, [open]);
 
@@ -108,6 +117,31 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
       setRows(prev => prev.map(r => r.id !== target ? r : { ...r, latitude: lat, longitude: lng, status: 'resolved' }));
       const elev = await resolveElevation(lat, lng);
       if (elev != null) setRows(prev => prev.map(r => r.id !== target ? r : { ...r, elevation: elev }));
+    }
+  };
+
+  const handleLocateCentre = async () => {
+    if (!form.name.trim()) return;
+    setLocating(true);
+    setLocateError(null);
+    try {
+      const hit = await geocodeLocality(form.name);
+      if (!hit) {
+        setLocateError('לא נמצא מיקום לפי השם — אפשר לבחור במפה');
+        return;
+      }
+      setForm(prev => ({ ...prev, latitude: hit.latitude.toFixed(6), longitude: hit.longitude.toFixed(6), elevation: '' }));
+      setElevLoading(true);
+      const elev = await resolveElevation(hit.latitude, hit.longitude);
+      setElevLoading(false);
+      if (elev != null) setForm(prev => ({ ...prev, elevation: String(elev) }));
+      setMaLoading(true);
+      try { setMaAngle(await calcMountainAngle(hit.latitude, hit.longitude, elev ?? 0)); } catch { /* fail silently */ }
+      finally { setMaLoading(false); }
+    } catch (e) {
+      setLocateError(e instanceof Error ? e.message : 'שגיאה באיתור המיקום');
+    } finally {
+      setLocating(false);
     }
   };
 
@@ -148,12 +182,14 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     if (!q) return;
     setSearching(true);
     setSearchError(null);
+    setSearchResultCount(null);
     try {
       let hits = await searchCouncilSettlements(q);
       if (hits.length === 0) {
         const single = await searchLocalityByName(q);
         hits = single ? [single] : [];
       }
+      setSearchResultCount(hits.length);
       if (hits.length === 0) {
         setSearchError('לא נמצא במרשם הישובים — אפשר להוסיף ידנית');
         return;
@@ -187,6 +223,28 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   }]);
 
   const removeRow = (id: string) => setRows(prev => prev.filter(r => r.id !== id));
+
+  /** Re-tries just one failed row — Nominatim occasionally misses on a transient
+   *  blip that a moment later succeeds; re-running the whole batch already
+   *  retries every unresolved row, this is the same thing scoped to one. */
+  const retryRow = async (id: string) => {
+    const row = rows.find(r => r.id === id);
+    if (!row || !row.name.trim()) return;
+    setRetryingId(id);
+    try {
+      const centre = { latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude) };
+      const hit = await geocodeSettlement(row.name, centre).catch(() => null);
+      setRows(prev => prev.map(r => r.id !== id ? r : hit
+        ? { ...r, latitude: hit.latitude, longitude: hit.longitude, status: 'resolved' as const }
+        : { ...r, status: 'not-found' as const }));
+      if (hit) {
+        const elev = await resolveElevation(hit.latitude, hit.longitude);
+        if (elev != null) setRows(prev => prev.map(r => r.id === id ? { ...r, elevation: elev } : r));
+      }
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   const handleGeocodeAll = async () => {
     const centre = { latitude: parseFloat(form.latitude), longitude: parseFloat(form.longitude) };
@@ -302,6 +360,17 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
               onPickMap={() => setMapPickTarget('centre')}
               elevLoading={elevLoading} maLoading={maLoading} maAngle={maAngle}
             />
+            <div className="flex items-center gap-2 mt-3" dir="rtl">
+              <button
+                onClick={handleLocateCentre}
+                disabled={locating || !form.name.trim()}
+                className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg border border-blue-200 disabled:opacity-50 transition-colors"
+              >
+                {locating ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
+                אתר קואורדינטות לפי השם
+              </button>
+              {locateError && <span className="text-xs text-amber-600">{locateError}</span>}
+            </div>
             <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
               <button
                 onClick={goToSettlements}
@@ -337,6 +406,9 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
                 </button>
               </div>
               {searchError && <p className="text-xs text-amber-600 mb-2">{searchError}</p>}
+              {searchResultCount != null && searchResultCount > 0 && (
+                <p className="text-xs text-slate-500 mb-2">נמצאו {searchResultCount} יישובים</p>
+              )}
 
               <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-72 overflow-y-auto mt-3">
                 {rows.map(row => (
@@ -364,6 +436,16 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
                     }>
                       {row.status === 'resolved' ? 'אותר' : row.status === 'not-found' ? 'לא אותר' : 'ממתין'}
                     </span>
+                    {row.status === 'not-found' && (
+                      <button
+                        onClick={() => retryRow(row.id)}
+                        disabled={geocoding || retryingId !== null}
+                        title="נסה שוב"
+                        className="text-blue-600 hover:text-blue-800 p-1 disabled:opacity-50"
+                      >
+                        {retryingId === row.id ? <Loader2 size={14} className="animate-spin" /> : <RotateCw size={14} />}
+                      </button>
+                    )}
                     {row.status !== 'resolved' && (
                       <button
                         onClick={() => setMapPickTarget(row.id)}
@@ -392,7 +474,7 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
                 </button>
                 <button
                   onClick={handleGeocodeAll}
-                  disabled={geocoding || !rows.some(r => r.included && r.id !== 'centre' && r.status !== 'resolved' && r.name.trim())}
+                  disabled={geocoding || retryingId !== null || !rows.some(r => r.included && r.id !== 'centre' && r.status !== 'resolved' && r.name.trim())}
                   className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg border border-blue-200 disabled:opacity-50 transition-colors"
                 >
                   {geocoding && <Loader2 size={13} className="animate-spin" />}

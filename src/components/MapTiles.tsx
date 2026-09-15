@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TileLayer } from 'react-leaflet';
+import L from 'leaflet';
 import { Layers } from 'lucide-react';
 import { getGoogleSession, googleTileUrl, hasGoogleTiles, GOOGLE_ATTR } from '../utils/googleTiles';
 
@@ -57,6 +58,7 @@ export default function MapTiles({
 }: Props) {
   const [sat, setSat] = useState(defaultSatellite);
   const [gSession, setGSession] = useState<string | null>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   // Only once the user actually asks for imagery — createSession is a billable
   // request, and most visits to the street map never need it.
@@ -66,6 +68,17 @@ export default function MapTiles({
     getGoogleSession().then(s => { if (live) setGSession(s); });
     return () => { live = false; };
   }, [sat, gSession]);
+
+  // The toggle sits inside the Leaflet map container, so a click on it also
+  // bubbles to the map's own native click listener (attached directly to the
+  // container, outside React's synthetic event system) — React's
+  // e.stopPropagation() below fires too late to stop that. A click-to-place-
+  // a-pin map (the wizard's settlement picker) reads that as "click here",
+  // sets a pin under the button, and closes the picker. Leaflet's own helper
+  // stops it at the right point.
+  useEffect(() => {
+    if (toggleRef.current) L.DomEvent.disableClickPropagation(toggleRef.current);
+  }, []);
 
   return (
     <>
@@ -83,6 +96,7 @@ export default function MapTiles({
 
       {/* z-[1200] clears Leaflet's marker pane (600) and its controls (1000). */}
       {showToggle && <button
+        ref={toggleRef}
         type="button"
         onClick={(e) => { e.stopPropagation(); setSat(v => !v); }}
         title={sat ? 'עבור למפת רחובות' : 'עבור לתצלום לוויין'}

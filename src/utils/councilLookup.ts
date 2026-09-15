@@ -79,24 +79,24 @@ export interface SettlementGeocodeResult extends GeocodeResult {
 }
 
 /**
- * Best-effort coordinates for a SETTLEMENT NAME (not a street address) — tries
- * each Hebrew candidate form in turn, keeping only Nominatim hits classed
- * 'place' (a street/POI that happens to share the settlement's name is
- * rejected outright, not silently geocoded to the wrong kind of thing — a
- * search for "עמק הירדן" itself returns a valley and two roads before
- * anything place-classed). Sequential, ~1.1s between requests, per
- * Nominatim's usage policy — callers geocoding a list should await this one
- * row at a time, not in parallel.
+ * Tries each Hebrew candidate form of `name` in turn against Nominatim,
+ * keeping only a hit classed 'place' (a street/POI that happens to share a
+ * settlement's name is rejected outright, not silently geocoded to the wrong
+ * kind of thing — a search for "עמק הירדן" itself returns a valley and two
+ * roads before anything place-classed). Sequential, ~1.1s between requests,
+ * per Nominatim's usage policy.
  */
-export async function geocodeSettlement(
+async function geocodePlaceName(
   name: string,
-  centre: { latitude: number; longitude: number },
+  bias: { latitude: number; longitude: number } | null,
   maxDistanceKm = 40,
 ): Promise<SettlementGeocodeResult | null> {
   for (const q of queryCandidates(name)) {
     let hits: GeocodeResult[] = [];
     try {
-      hits = await geocodeAddress(q, { latitude: centre.latitude, longitude: centre.longitude }, 5, maxDistanceKm);
+      hits = bias
+        ? await geocodeAddress(q, { latitude: bias.latitude, longitude: bias.longitude }, 5, maxDistanceKm)
+        : await geocodeAddress(q, {}, 5);
     } catch {
       // this candidate failed on the network — try the next form rather than aborting the row
     }
@@ -105,6 +105,29 @@ export async function geocodeSettlement(
     if (place) return { ...place, matchedQuery: q };
   }
   return null;
+}
+
+/** Best-effort coordinates for a SETTLEMENT NAME once a council centre is known — see geocodePlaceName. */
+export async function geocodeSettlement(
+  name: string,
+  centre: { latitude: number; longitude: number },
+  maxDistanceKm = 40,
+): Promise<SettlementGeocodeResult | null> {
+  return geocodePlaceName(name, centre, maxDistanceKm);
+}
+
+/**
+ * Best-effort coordinates for a locality NAME with no reference point yet —
+ * step 1 of the wizard, before any centre exists to bias against. Checks the
+ * government registry first (confirms it's a real, correctly-spelled
+ * locality and recovers its official name), then geocodes that name
+ * nationwide via Nominatim, same place-only filter as geocodeSettlement.
+ */
+export async function geocodeLocality(name: string): Promise<SettlementGeocodeResult | null> {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const official = await searchLocalityByName(trimmed).catch(() => null);
+  return geocodePlaceName(official?.name ?? trimmed, null);
 }
 
 /** One open-meteo request for every point — matched back to callers by array index. */
