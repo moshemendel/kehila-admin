@@ -17,7 +17,9 @@ import {
   geocodeSettlement,
   geocodeLocality,
   batchElevations,
+  fetchAllLocalities,
   LOCALITIES_RESOURCE,
+  type LocalityEntry,
 } from '../utils/councilLookup';
 import { haversineKm } from '../utils/geocode';
 
@@ -64,6 +66,7 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
   const [rows, setRows] = useState<SettlementRow[]>([]);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState<string | null>(null);
+  const [localities, setLocalities] = useState<LocalityEntry[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
@@ -93,7 +96,27 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     setGeocodeProgress(null);
     setRetryingId(null);
     setMapPickTarget(null);
+    fetchAllLocalities().then(setLocalities).catch(() => {});
   }, [open]);
+
+  // Substring match against the cached national locality list, narrowing live
+  // as the name is typed — resolves an abbreviated/ambiguous name (e.g.
+  // "מעלות") against the ~10-ish real candidates before ever geocoding,
+  // rather than silently taking whatever Nominatim ranks first nationwide.
+  // Excludes an exact match so the list clears itself once one is picked.
+  const normalizeForMatch = (s: string) => s.replace(/[-־]/g, ' ').replace(/\s+/g, ' ').trim();
+  const nameQuery = form.name.trim();
+  const nameMatches = nameQuery.length >= 2
+    ? localities
+        .filter(l => l.name !== nameQuery && normalizeForMatch(l.name).includes(normalizeForMatch(nameQuery)))
+        .sort((a, b) => {
+          const aStarts = normalizeForMatch(a.name).startsWith(normalizeForMatch(nameQuery));
+          const bStarts = normalizeForMatch(b.name).startsWith(normalizeForMatch(nameQuery));
+          if (aStarts !== bStarts) return aStarts ? -1 : 1;
+          return a.name.localeCompare(b.name, 'he');
+        })
+        .slice(0, 8)
+    : [];
 
   // ── Elevation + mountain-angle preview, shared by Step 1's map-pick and every row's ──
 
@@ -120,12 +143,13 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     }
   };
 
-  const handleLocateCentre = async () => {
-    if (!form.name.trim()) return;
+  const handleLocateCentre = async (nameOverride?: string) => {
+    const name = (nameOverride ?? form.name).trim();
+    if (!name) return;
     setLocating(true);
     setLocateError(null);
     try {
-      const hit = await geocodeLocality(form.name);
+      const hit = await geocodeLocality(name);
       if (!hit) {
         setLocateError('לא נמצא מיקום לפי השם — אפשר לבחור במפה');
         return;
@@ -143,6 +167,14 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
     } finally {
       setLocating(false);
     }
+  };
+
+  /** A dropdown pick is already disambiguated — set the official spelling and
+   *  geocode it immediately (still a deliberate user action, same as clicking
+   *  the locate button itself). */
+  const selectLocality = (loc: LocalityEntry) => {
+    setForm(prev => ({ ...prev, name: loc.name }));
+    handleLocateCentre(loc.name);
   };
 
   const activePick = mapPickTarget === 'centre'
@@ -359,10 +391,26 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
               form={form} setForm={setForm}
               onPickMap={() => setMapPickTarget('centre')}
               elevLoading={elevLoading} maLoading={maLoading} maAngle={maAngle}
-              afterName={
+              belowName={nameMatches.length > 0 && (
+                <div className="absolute z-10 top-full mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto" dir="rtl">
+                  {nameMatches.map(loc => (
+                    <button
+                      key={loc.cbsCode}
+                      type="button"
+                      onClick={() => selectLocality(loc)}
+                      className="w-full text-right px-3 py-2 text-sm hover:bg-blue-50 flex items-center justify-between gap-2 border-b border-slate-50 last:border-0"
+                    >
+                      <span className="font-medium text-slate-700">{loc.name}</span>
+                      <span className="text-xs text-slate-400 whitespace-nowrap">{loc.council ? `מועצה: ${loc.council}` : 'רשות עצמאית'}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              pickMapExtra={
                 <div className="flex items-center gap-2" dir="rtl">
                   <button
-                    onClick={handleLocateCentre}
+                    type="button"
+                    onClick={() => handleLocateCentre()}
                     disabled={locating || !form.name.trim()}
                     className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg border border-blue-200 disabled:opacity-50 transition-colors"
                   >

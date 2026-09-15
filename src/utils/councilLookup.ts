@@ -54,6 +54,57 @@ export async function searchLocalityByName(name: string): Promise<CouncilSettlem
   return hits[0] ?? null;
 }
 
+export interface LocalityEntry {
+  cbsCode: string;
+  name: string;
+  /** The regional council this locality belongs to, shown to disambiguate
+   *  same-prefixed places (e.g. "מעלה עמוס" under גוש עציון vs. the several
+   *  other "מעלה"-prefixed places). Absent when the locality is itself a
+   *  city/local council. */
+  council?: string;
+}
+
+let localitiesCache: LocalityEntry[] | null = null;
+let localitiesInFlight: Promise<LocalityEntry[]> | null = null;
+
+/**
+ * Every recognized Israeli locality (~1,300 rows total — small enough to
+ * fetch once and cache), for a live-narrowing name picker. Exists because an
+ * exact-match lookup (searchLocalityByName) or an unqualified Nominatim
+ * search both fail an abbreviated or ambiguous name silently: typing "מעלות"
+ * has exactly one real match here ("מעלות-תרשיחא"), but geocoding "מעלות"
+ * directly returned an unrelated same-named neighbourhood elsewhere instead
+ * — checked live. Substring search against this cached list resolves the
+ * name before geocoding ever runs, rather than after it's already guessed
+ * wrong.
+ */
+export async function fetchAllLocalities(): Promise<LocalityEntry[]> {
+  if (localitiesCache) return localitiesCache;
+  if (localitiesInFlight) return localitiesInFlight;
+  localitiesInFlight = (async () => {
+    const records: LocalityRecord[] = [];
+    let total = Infinity;
+    for (let page = 0; records.length < total && page < 20; page++) {
+      const res = await fetch(`${CKAN}?resource_id=${LOCALITIES_RESOURCE}&limit=1000&offset=${page * 1000}`);
+      const json = await res.json();
+      const batch = (json?.result?.records ?? []) as LocalityRecord[];
+      if (batch.length === 0) break;
+      records.push(...batch);
+      total = json?.result?.total ?? records.length;
+    }
+    const list = records
+      .map(r => ({
+        cbsCode: String(r['סמל_ישוב']).trim(),
+        name: String(r['שם_ישוב']).trim(),
+        council: r['שם_מועצה']?.trim() || undefined,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    localitiesCache = list;
+    return list;
+  })().finally(() => { localitiesInFlight = null; });
+  return localitiesInFlight;
+}
+
 // ── Hebrew construct-state candidates (ported from importAreas.mjs) ──────────
 // "X (קבוצה)" needs to be searched as "קבוצת X" to resolve on Nominatim, same
 // for מושבה→מושבת; a plain bracket-qualified or punctuated name usually needs
@@ -79,12 +130,24 @@ export interface SettlementGeocodeResult extends GeocodeResult {
 }
 
 /**
+ * A hit that's actually a settlement rather than a street/POI/valley that
+ * happens to share its name — a search for "עמק הירדן" itself returns a
+ * valley and two roads before anything settlement-like. Most settlements are
+ * class 'place'; some (checked live: מעלות-תרשיחא, a real municipality) have
+ * no 'place' node in OSM at all and are only mapped as their administrative
+ * boundary polygon — rejecting those too would fail a real, correctly-named
+ * locality, so both are accepted. Neither "עמק הירדן" result is either kind
+ * (natural/valley, highway/*), so this stays exactly as selective for that
+ * case while no longer rejecting a legitimate boundary-only place.
+ */
+function isSettlementHit(h: GeocodeResult): boolean {
+  return h.class === 'place' || (h.class === 'boundary' && h.type === 'administrative');
+}
+
+/**
  * Tries each Hebrew candidate form of `name` in turn against Nominatim,
- * keeping only a hit classed 'place' (a street/POI that happens to share a
- * settlement's name is rejected outright, not silently geocoded to the wrong
- * kind of thing — a search for "עמק הירדן" itself returns a valley and two
- * roads before anything place-classed). Sequential, ~1.1s between requests,
- * per Nominatim's usage policy.
+ * keeping only a settlement-classed hit (see isSettlementHit). Sequential,
+ * ~1.1s between requests, per Nominatim's usage policy.
  */
 async function geocodePlaceName(
   name: string,
@@ -101,7 +164,7 @@ async function geocodePlaceName(
       // this candidate failed on the network — try the next form rather than aborting the row
     }
     await sleep(NOMINATIM_DELAY_MS);
-    const place = hits.find(h => h.class === 'place');
+    const place = hits.find(isSettlementHit);
     if (place) return { ...place, matchedQuery: q };
   }
   return null;
