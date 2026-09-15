@@ -550,6 +550,11 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
             <div className="px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 mb-3" dir="rtl">
               {summary}
             </div>
+            {includedRows.length > 1 && includedRows.some(r => r.id === 'centre') && (
+              <p className="text-xs text-amber-600 mb-2" dir="rtl">
+                📍 השורה המסומנת היא נקודת המרכז שהוזנה בשלב 1 — היא לא בהכרח יישוב בפני עצמו. ברוב המועצות האזוריות אין ליישוב בשם המועצה עצמו; אם זה המקרה כאן, הסר אותה מהרשימה.
+              </p>
+            )}
             <div className="border border-slate-200 rounded-lg overflow-x-auto" dir="rtl">
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 text-slate-500">
@@ -569,11 +574,16 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
                     return (
                       <tr key={row.id}>
                         <td className="px-2 py-1.5">
-                          <input
-                            value={row.name}
-                            onChange={e => setRows(prev => prev.map(r => r.id === row.id ? { ...r, name: e.target.value } : r))}
-                            className="w-28 px-1.5 py-1 text-xs border border-transparent hover:border-slate-200 focus:border-blue-400 rounded outline-none"
-                          />
+                          <div className="flex items-center gap-1">
+                            {row.id === 'centre' && (
+                              <span title="נקודת המרכז שהוזנה בשלב 1 — לא בהכרח יישוב בפני עצמו" className="text-xs flex-shrink-0">📍</span>
+                            )}
+                            <input
+                              value={row.name}
+                              onChange={e => setRows(prev => prev.map(r => r.id === row.id ? { ...r, name: e.target.value } : r))}
+                              className="w-24 px-1.5 py-1 text-xs border border-transparent hover:border-slate-200 focus:border-blue-400 rounded outline-none"
+                            />
+                          </div>
                         </td>
                         <td className="px-2 py-1.5 text-slate-400 font-mono">{row.cbsCode ?? '—'}</td>
                         <td className="px-2 py-1.5">
