@@ -55,28 +55,36 @@ export async function searchLocalityByName(name: string): Promise<CouncilSettlem
 }
 
 export interface LocalityEntry {
-  cbsCode: string;
+  /** CBS locality code — set for a standalone city/local council. Absent for
+   *  a regional council entry, which has no locality row of its own to carry
+   *  one (see fetchAllLocalities). */
+  cbsCode?: string;
   name: string;
-  /** The regional council this locality belongs to, shown to disambiguate
-   *  same-prefixed places (e.g. "מעלה עמוס" under גוש עציון vs. the several
-   *  other "מעלה"-prefixed places). Absent when the locality is itself a
-   *  city/local council. */
-  council?: string;
+  /** True for a regional council (a derived entry — see fetchAllLocalities),
+   *  a standalone city/local council otherwise. */
+  isCouncil?: boolean;
 }
 
 let localitiesCache: LocalityEntry[] | null = null;
 let localitiesInFlight: Promise<LocalityEntry[]> | null = null;
 
 /**
- * Every recognized Israeli locality (~1,300 rows total — small enough to
- * fetch once and cache), for a live-narrowing name picker. Exists because an
- * exact-match lookup (searchLocalityByName) or an unqualified Nominatim
- * search both fail an abbreviated or ambiguous name silently: typing "מעלות"
- * has exactly one real match here ("מעלות-תרשיחא"), but geocoding "מעלות"
- * directly returned an unrelated same-named neighbourhood elsewhere instead
- * — checked live. Substring search against this cached list resolves the
- * name before geocoding ever runs, rather than after it's already guessed
- * wrong.
+ * Every top-level authority a new tenant could be — a standalone city/local
+ * council, or a regional council itself — for a live-narrowing name picker.
+ * Deliberately excludes the ~1,080 individual member settlements (קיבוצים,
+ * מושבים, כפרים, ...): creating a new top-level tenant is never "אפיקים",
+ * it's "עמק הירדן" (the regional council it belongs to) or a plain
+ * standalone city — those are two different questions, and only the first
+ * is what step 1 is asking.
+ *
+ * The registry has no separate "is this a council" field, so this is built
+ * from what it does have: a locality row with no שם_מועצה is a standalone
+ * city/local council; a regional council is never a row of its own (checked
+ * live — "עמק הירדן" appears nowhere as a שם_ישוב) but always the שם_מועצה
+ * value shared by its member rows, so the distinct set of those names IS the
+ * list of councils. Checked live against the full registry (1,316 rows):
+ * 233 standalone + 54 distinct council names — the 54 matches Israel's
+ * actual count of regional councils exactly.
  */
 export async function fetchAllLocalities(): Promise<LocalityEntry[]> {
   if (localitiesCache) return localitiesCache;
@@ -92,13 +100,12 @@ export async function fetchAllLocalities(): Promise<LocalityEntry[]> {
       records.push(...batch);
       total = json?.result?.total ?? records.length;
     }
-    const list = records
-      .map(r => ({
-        cbsCode: String(r['סמל_ישוב']).trim(),
-        name: String(r['שם_ישוב']).trim(),
-        council: r['שם_מועצה']?.trim() || undefined,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'he'));
+    const standalone: LocalityEntry[] = records
+      .filter(r => !r['שם_מועצה'])
+      .map(r => ({ cbsCode: String(r['סמל_ישוב']).trim(), name: String(r['שם_ישוב']).trim() }));
+    const councilNames = new Set(records.map(r => r['שם_מועצה']).filter(Boolean) as string[]);
+    const councils: LocalityEntry[] = [...councilNames].map(name => ({ name: name.trim(), isCouncil: true }));
+    const list = [...standalone, ...councils].sort((a, b) => a.name.localeCompare(b.name, 'he'));
     localitiesCache = list;
     return list;
   })().finally(() => { localitiesInFlight = null; });

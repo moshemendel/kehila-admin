@@ -395,13 +395,13 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
                 <div className="absolute z-10 top-full mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto" dir="rtl">
                   {nameMatches.map(loc => (
                     <button
-                      key={loc.cbsCode}
+                      key={loc.cbsCode ?? loc.name}
                       type="button"
                       onClick={() => selectLocality(loc)}
                       className="w-full text-right px-3 py-2 text-sm hover:bg-blue-50 flex items-center justify-between gap-2 border-b border-slate-50 last:border-0"
                     >
                       <span className="font-medium text-slate-700">{loc.name}</span>
-                      <span className="text-xs text-slate-400 whitespace-nowrap">{loc.council ? `מועצה: ${loc.council}` : 'רשות עצמאית'}</span>
+                      <span className="text-xs text-slate-400 whitespace-nowrap">{loc.isCouncil ? 'מועצה אזורית' : 'רשות עצמאית'}</span>
                     </button>
                   ))}
                 </div>
