@@ -700,6 +700,11 @@ export default function SynagogueDetailPage() {
     { key: 'announcements', label: `הודעות (${announcements.length})` },
   ];
 
+  // The locality whose official street list applies to whatever's in the
+  // form right now — the area picked in the form, else the tenant's one
+  // isDefault area (a plain city still has exactly one, its own).
+  const infoAreaCbsCode = (areas.find(a => a.id === info.areaId) ?? areas.find(a => a.isDefault))?.cbsCode;
+
   return (
     <div className="p-8" dir="rtl">
       {/* Header */}
@@ -835,6 +840,7 @@ export default function SynagogueDetailPage() {
                     cityName={cityName}
                     cityLat={cityCoords.lat}
                     cityLon={cityCoords.lon}
+                    cbsCode={infoAreaCbsCode}
                     inputClassName={inp}
                   />
                 </InfoField>

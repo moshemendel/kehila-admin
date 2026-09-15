@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { MapPin, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { MapPin, Loader2, List } from 'lucide-react';
 import { geocodeAddress, type GeocodeResult } from '../utils/geocode';
+import { fetchOfficialStreets } from '../utils/officialStreets';
 
 interface Props {
   /** Current address text. */
@@ -13,6 +14,15 @@ interface Props {
   /** City centre, used to prefer nearby results (see utils/geocode.ts). */
   cityLat?: number;
   cityLon?: number;
+  /**
+   * The record's own locality (its area, or the city's own — CBS locality
+   * code, Area.cbsCode). When given, offers data.gov.il's official street
+   * list for that locality — a smaller, separate question from geocoding
+   * ("is this a real, correctly-spelled street here") — see
+   * utils/officialStreets.ts. Omit to leave this a plain text field, as
+   * before.
+   */
+  cbsCode?: string;
   inputClassName?: string;
   disabled?: boolean;
 }
@@ -32,11 +42,20 @@ interface Props {
  * distance from the city centre and whether it was kept.
  */
 export default function AddressGeocodeField({
-  value, onChange, onPick, cityName, cityLat, cityLon, inputClassName = '', disabled,
+  value, onChange, onPick, cityName, cityLat, cityLon, cbsCode, inputClassName = '', disabled,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<GeocodeResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [officialStreets, setOfficialStreets] = useState<string[] | null>(null);
+  useEffect(() => {
+    setOfficialStreets(null);
+    if (!cbsCode) return;
+    let live = true;
+    fetchOfficialStreets(cbsCode).then((streets) => { if (live) setOfficialStreets(streets); });
+    return () => { live = false; };
+  }, [cbsCode]);
 
   const run = async () => {
     if (!value.trim() || busy) return;
@@ -65,6 +84,24 @@ export default function AddressGeocodeField({
 
   return (
     <div>
+      {/* Official street list, when a locality is known — a spelling/
+          existence check, not a geocode. Empty list (no data for this
+          locality) or none loaded yet both render nothing. */}
+      {officialStreets && officialStreets.length > 0 && (
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <List size={13} className="text-slate-400 flex-shrink-0" />
+          <select
+            value=""
+            onChange={e => { if (e.target.value) { onChange(e.target.value); setResults(null); setError(null); } }}
+            disabled={disabled}
+            className="flex-1 px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 text-slate-500"
+          >
+            <option value="">בחר רחוב רשמי (data.gov.il) — {officialStreets.length} רחובות ביישוב</option>
+            {officialStreets.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      )}
+
       <div className="flex gap-1.5">
         <input
           value={value}

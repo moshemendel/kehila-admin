@@ -720,6 +720,11 @@ export default function BusinessesPage() {
     (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm(p => ({ ...p, [k]: e.target.value }));
 
+  // The locality whose official street list applies to whatever's in the
+  // form right now — the area picked in the form, else the tenant's one
+  // isDefault area (a plain city still has exactly one, its own).
+  const formAreaCbsCode = (areas.find(a => a.id === form.areaId) ?? areas.find(a => a.isDefault))?.cbsCode;
+
   const pageTitle  = isOpsView ? 'בתי עסק' : 'כשרות';
   const modalTitle = editing
     ? (isOpsView ? 'עריכת פרטי עסק' : 'עריכת עסק')
@@ -850,6 +855,7 @@ export default function BusinessesPage() {
                   cityName={cityName}
                   cityLat={cityCoords.lat}
                   cityLon={cityCoords.lon}
+                  cbsCode={formAreaCbsCode}
                   inputClassName={inp}
                 />
               </Field>

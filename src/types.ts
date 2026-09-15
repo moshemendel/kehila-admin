@@ -384,6 +384,10 @@ export interface Area {
   latitude: number;
   longitude: number;
   isDefault?: boolean;
+  /** Official CBS locality code — used to look up its official street list
+   *  (utils/officialStreets.ts). Absent for a city neighbourhood, which the
+   *  state has no code for. */
+  cbsCode?: string;
 }
 
 // ── Cemeteries ────────────────────────────────────────────────────────────────

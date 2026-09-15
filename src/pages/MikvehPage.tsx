@@ -273,6 +273,11 @@ export default function MikvehPage() {
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }));
 
+  // The locality whose official street list applies to whatever's in the
+  // form right now — the area picked in the form, else the tenant's one
+  // isDefault area (a plain city still has exactly one, its own).
+  const formAreaCbsCode = (areas.find(a => a.id === form.areaId) ?? areas.find(a => a.isDefault))?.cbsCode;
+
   return (
     <div className="p-8" dir="rtl">
       <div className="flex items-center justify-between mb-6">
@@ -376,6 +381,7 @@ export default function MikvehPage() {
               cityName={city?.name}
               cityLat={city?.latitude}
               cityLon={city?.longitude}
+              cbsCode={formAreaCbsCode}
               inputClassName={inp}
             />
           </Field>
