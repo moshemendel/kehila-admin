@@ -1,7 +1,7 @@
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, updateDoc, writeBatch } from 'firebase/firestore';
 import { getCountFromServer } from 'firebase/firestore';
 import { MapContainer, Marker, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
@@ -300,7 +300,16 @@ export default function CitiesMapPage() {
     if (!actionCity) return;
     setSaving(true);
     try {
-      await deleteDoc(doc(db, 'cities', actionCity.id));
+      // The city's areas go with it, in the same batch so a failure leaves
+      // both in place rather than half a council. Deleting only the city doc
+      // used to orphan them — Emek HaMaayanot's 24 settlements were left
+      // pointing at a city that no longer existed. The wizard creates at most
+      // a few dozen areas per council, well inside a batch's 500 writes.
+      const areas = await getDocs(query(collection(db, 'areas'), where('cityId', '==', actionCity.id)));
+      const batch = writeBatch(db);
+      areas.docs.forEach(a => batch.delete(a.ref));
+      batch.delete(doc(db, 'cities', actionCity.id));
+      await batch.commit();
       setDeleteOpen(false);
       setActionCity(null);
       load();
@@ -547,7 +556,7 @@ export default function CitiesMapPage() {
           האם למחוק את <strong>{actionCity?.name}</strong>?
         </p>
         <p className="text-amber-600 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-6">
-          שים לב: המחיקה מסירה רק את העיר. בתי הכנסת, מקואות ונתוני המשתמשים לא יימחקו.
+          שים לב: המחיקה מסירה את העיר ואת היישובים שלה. בתי הכנסת, מקואות ונתוני המשתמשים לא יימחקו.
         </p>
         <div className="flex gap-3">
           <button
