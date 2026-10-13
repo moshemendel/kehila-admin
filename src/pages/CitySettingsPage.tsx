@@ -21,6 +21,7 @@ export default function CitySettingsPage() {
   const [maLoading, setMaLoading] = useState(false);
   const [maAngle, setMaAngle]     = useState<number | null>(null);
   const [modules, setModules]     = useState<CityModules>({});
+  const [hidden, setHidden]       = useState(false);
 
   useEffect(() => {
     if (!cityId) return;
@@ -34,6 +35,7 @@ export default function CitySettingsPage() {
           elevation: c.elevation != null ? String(c.elevation) : '',
         });
         setModules(c.modules ?? {});
+        setHidden(!!c.hidden);
         if (c.latitude && c.longitude) {
           setMaLoading(true);
           calcMountainAngle(c.latitude, c.longitude, c.elevation ?? 0)
@@ -60,6 +62,7 @@ export default function CitySettingsPage() {
         // module goes back to 'live', and a merge would leave the old value
         // behind.
         modules,
+        hidden,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -82,6 +85,24 @@ export default function CitySettingsPage() {
 
         <div className="pt-5 mt-5 border-t border-slate-100">
           <CityModulesEditor value={modules} onChange={setModules} />
+        </div>
+
+        <div className="pt-5 mt-5 border-t border-slate-100">
+          <label htmlFor="city-hidden" className="flex items-start gap-3 cursor-pointer">
+            <input
+              id="city-hidden"
+              type="checkbox"
+              checked={hidden}
+              onChange={e => setHidden(e.target.checked)}
+              className="mt-1 h-4 w-4 accent-[#1B3A6B]"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-800">העיר מוסתרת מהאפליקציה</span>
+              <span className="block text-xs text-slate-500 mt-0.5">
+                תושבים לא יראו אותה ברשימת הערים עד שתבטל את הסימון. מנהלי העיר ומנהלי המערכת רואים אותה כדי לבדוק אותה לפני הפתיחה.
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="flex items-center gap-3 pt-4 border-t border-slate-100 mt-4">

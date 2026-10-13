@@ -429,6 +429,9 @@ export default function AddCouncilWizard({ open, onClose, onDone }: Props) {
         longitude: parseFloat(form.longitude),
         ...(form.elevation !== '' && { elevation: parseInt(form.elevation, 10) }),
         kind,
+        // Hidden from residents until its data is in; opened from the city's
+        // settings page.
+        hidden: true,
       });
 
       for (const row of includedRows) {

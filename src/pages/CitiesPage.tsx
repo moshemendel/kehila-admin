@@ -74,7 +74,7 @@ export default function CitiesPage() {
           >
             <div className="flex items-start justify-between mb-4">
               <div>
-                <div className="text-lg font-bold text-slate-800">{city.name}</div>
+                <div className="text-lg font-bold text-slate-800">{city.name}{city.hidden && <span className="mr-2 align-middle text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">מוסתרת</span>}</div>
                 <div className="flex items-center gap-1 text-slate-400 text-xs mt-0.5">
                   <MapPin size={11} /> {city.country}
                 </div>

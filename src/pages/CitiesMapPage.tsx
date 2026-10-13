@@ -403,7 +403,7 @@ export default function CitiesMapPage() {
                   className="w-full text-right px-4 py-2.5 hover:bg-blue-50 flex items-center justify-between group transition-colors"
                 >
                   <div>
-                    <div className="text-sm font-semibold text-slate-800">{city.name}</div>
+                    <div className="text-sm font-semibold text-slate-800">{city.name}{city.hidden && <span className="mr-2 align-middle text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">מוסתרת</span>}</div>
                     {!city.statsLoading && city.stats && (
                       <div className="text-xs text-slate-400">
                         {city.stats.synagogues} בתי כנסת · {city.stats.users} משתמשים

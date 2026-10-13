@@ -87,6 +87,10 @@ export interface City {
    * mobile app: absent means live, so the document records only exceptions.
    */
   modules?: CityModules;
+  /** Not live yet: left out of the mobile app's city lists for everyone but
+   *  this city's staff and super admins. Mirrors City.hidden in the app.
+   *  New cities start hidden; absent = live. */
+  hidden?: boolean;
 }
 
 /**
