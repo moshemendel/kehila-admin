@@ -8,7 +8,7 @@ import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import type { City } from '../types';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, Marker, Polyline, Polygon, useMapEvents, useMap } from 'react-leaflet';
+import { MapContainer, Marker, Polyline, Polygon, Tooltip, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import {
   CheckCircle2, XCircle, HelpCircle, Trash2, Undo2, RotateCcw,
@@ -57,7 +57,7 @@ interface EruvStatusDoc {
   updatedBy?: string;
 }
 
-interface AreaOption { id: string; name: string; }
+interface AreaOption { id: string; name: string; latitude?: number; longitude?: number; }
 
 // Picker used both to create a brand-new eruv (checking one or more
 // uncovered settlements) and to edit an existing eruv's areaIds (checking
@@ -68,8 +68,33 @@ type EruvPicker = { mode: 'create' } | { mode: 'edit'; eruv: EruvStatusDoc };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-// Colors for each polygon (active uses #1B3A6B)
-const POLY_COLORS = ['#E07B00', '#2e7d32', '#7b1fa2', '#c62828'];
+// One colour per ring, the same on its chip and on the map.
+const POLY_COLORS = ['#1B3A6B', '#E07B00', '#2e7d32', '#7b1fa2', '#c62828'];
+const polyColor = (i: number) => POLY_COLORS[i % POLY_COLORS.length];
+
+/**
+ * How one ring is drawn. Stored with its points (polygons[i].style), so a
+ * ring keeps its look across saves. fillColor null = same as the outline.
+ */
+interface PolyStyle { color: string; fillColor: string | null; fillOpacity: number; }
+const DEFAULT_FILL_OPACITY = 0.18;
+const defaultStyle = (i: number): PolyStyle =>
+  ({ color: polyColor(i), fillColor: null, fillOpacity: DEFAULT_FILL_OPACITY });
+
+function readStyle(raw: unknown, i: number): PolyStyle {
+  const d = defaultStyle(i);
+  if (!raw || typeof raw !== 'object') return d;
+  const r = raw as Partial<PolyStyle>;
+  const hex = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+  return {
+    color: hex(r.color) ? r.color : d.color,
+    fillColor: hex(r.fillColor) ? r.fillColor : null,
+    fillOpacity: typeof r.fillOpacity === 'number' && r.fillOpacity >= 0 && r.fillOpacity <= 1
+      ? r.fillOpacity : d.fillOpacity,
+  };
+}
+// Tall enough to work in, short enough that the toolbar above stays on screen.
+const MAP_HEIGHT = 'max(420px, calc(100vh - 300px))';
 
 function areAdjacent(a: number, b: number, count: number) {
   return Math.abs(a - b) === 1 || (Math.min(a, b) === 0 && Math.max(a, b) === count - 1);
@@ -100,14 +125,23 @@ function MapClickHandler({ onAdd }: { onAdd: (lat: number, lng: number) => void 
   return null;
 }
 
-/** Zooms to the given points each time `token` changes — after a file import,
- *  whose points may be nowhere near the current view. */
-function FitToPoints({ token, points }: { token: number; points: EruvCoord[] }) {
+/**
+ * Frames the map each time `token` changes: on the selected eruv's boundary
+ * when it has one, otherwise on `fallback` (its settlement, or the city).
+ * Token-driven so it fires on switching eruv or importing a file, and never
+ * while the admin is editing points.
+ */
+function FitToPoints({ token, points, fallback }: {
+  token: number; points: EruvCoord[]; fallback: [number, number];
+}) {
   const map = useMap();
   useEffect(() => {
-    if (!token || points.length === 0) return;
-    map.fitBounds(L.latLngBounds(points.map(p => [p.lat, p.lng] as [number, number])), { padding: [30, 30] });
-    // Only on a new import, not on every point edit.
+    if (!token) return;
+    if (points.length >= 2) {
+      map.fitBounds(L.latLngBounds(points.map(p => [p.lat, p.lng] as [number, number])), { padding: [30, 30] });
+    } else {
+      map.setView(fallback, 15);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
   return null;
@@ -121,7 +155,13 @@ const STATUS_INFO: Record<EruvStatusValue, { label: string; color: string; bg: s
   unknown: { label: 'לא ידוע', color: 'text-slate-600',   bg: 'bg-slate-50 border-slate-200',     Icon: HelpCircle   },
 };
 
-type TabKey = 'status' | 'polygon' | 'reports';
+type TabKey = 'status' | 'reports';
+
+// The all-eruvin map colours each eruv by its status, so the council-wide
+// picture reads at a glance; per-ring styling is for the single-eruv editor.
+const STATUS_MAP_COLOR: Record<EruvStatusValue, string> = {
+  valid: '#059669', invalid: '#dc2626', unknown: '#d97706',
+};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -140,12 +180,16 @@ export default function EruvPage() {
 
   // Polygon tab
   const [polygons,         setPolygons]         = useState<EruvCoord[][]>([[]]);
-  const [activePolygonIdx, setActivePolygonIdx] = useState(0);
+  // null = nothing selected: every ring shows as a plain filled shape. Only a
+  // selected ring shows its points and takes edits.
+  const [activePolygonIdx, setActivePolygonIdx] = useState<number | null>(null);
+  // Index-aligned with polygons; a missing entry means the default look.
+  const [polyStyles,       setPolyStyles]       = useState<PolyStyle[]>([]);
   const [savingPolygon,    setSavingPolygon]    = useState(false);
   const [polygonSaved,     setPolygonSaved]     = useState(false);
   const [saveError,        setSaveError]        = useState<string | null>(null);
   const [importOpen,       setImportOpen]       = useState(false);
-  // Bumped after an import so the map zooms to the loaded points.
+  // Bumped to re-frame the map: on switching eruv, and after an import.
   const [fitToken,         setFitToken]         = useState(0);
   const [pushSent,         setPushSent]         = useState<number | null>(null);
 
@@ -174,6 +218,22 @@ export default function EruvPage() {
   const [pickerError,    setPickerError]    = useState<string | null>(null);
 
   const activeEruv = useMemo(() => eruvs.find(e => e.id === activeEruvId) ?? null, [eruvs, activeEruvId]);
+
+  // All-eruvin view, for a council with more than one: every settlement's
+  // boundary on one map, coloured by status, nothing editable. It is where a
+  // multi-eruv council starts; clicking an eruv opens it for editing.
+  const [showAll, setShowAll] = useState(true);
+  const overview = showAll && eruvs.length > 1;
+  const overviewRings = useMemo(() => eruvs.flatMap(e => {
+    const raw = (e as { polygons?: { points?: { latitude: number; longitude: number }[] }[] }).polygons ?? [];
+    return raw
+      .map((poly, i) => ({
+        eruv: e,
+        key: `${e.id}-${i}`,
+        points: (poly.points ?? []).map(p => ({ lat: p.latitude, lng: p.longitude })),
+      }))
+      .filter(r => r.points.length >= 3);
+  }), [eruvs]);
   const coveredAreaIds = useMemo(() => new Set(eruvs.flatMap(e => e.areaIds ?? [])), [eruvs]);
   const uncoveredAreas = useMemo(() => areas.filter(a => !coveredAreaIds.has(a.id)), [areas, coveredAreaIds]);
   // Areas selectable in the picker: for a new eruv, whatever's uncovered; for
@@ -193,9 +253,18 @@ export default function EruvPage() {
     return names.join(' + ') || 'עירוב';
   }
 
-  const activePoints = polygons[activePolygonIdx] ?? [];
+  const activePoints = activePolygonIdx === null ? [] : (polygons[activePolygonIdx] ?? []);
+  const styleOf = (i: number): PolyStyle => polyStyles[i] ?? defaultStyle(i);
+  function updateStyle(i: number, patch: Partial<PolyStyle>) {
+    setPolyStyles(prev => {
+      const next = polygons.map((_, j) => prev[j] ?? defaultStyle(j));
+      next[i] = { ...next[i], ...patch };
+      return next;
+    });
+  }
 
   const updateActivePolygon = useCallback((fn: (pts: EruvCoord[]) => EruvCoord[]) => {
+    if (activePolygonIdx === null) return;
     setPolygons(prev => {
       const next = [...prev];
       next[activePolygonIdx] = fn(next[activePolygonIdx] ?? []);
@@ -216,7 +285,10 @@ export default function EruvPage() {
   useEffect(() => {
     if (!cityId) return;
     getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId))).then(snap => {
-      setAreas(snap.docs.map(d => ({ id: d.id, name: (d.data() as any).name as string })));
+      setAreas(snap.docs.map(d => {
+        const a = d.data() as { name: string; latitude?: number; longitude?: number };
+        return { id: d.id, name: a.name, latitude: a.latitude, longitude: a.longitude };
+      }));
     });
   }, [cityId]);
 
@@ -235,7 +307,7 @@ export default function EruvPage() {
 
   // Sync the status/polygon form state to whichever eruv is now selected.
   useEffect(() => {
-    if (!activeEruv) { setStatusValue('unknown'); setNotes(''); setPolygons([[]]); return; }
+    if (!activeEruv) { setStatusValue('unknown'); setNotes(''); setPolygons([[]]); setPolyStyles([]); setActivePolygonIdx(null); return; }
     setStatusValue(activeEruv.status ?? 'unknown');
     setNotes(activeEruv.notes ?? '');
     const d = activeEruv as any;
@@ -244,12 +316,52 @@ export default function EruvPage() {
       setPolygons(d.polygons.map((poly: any) =>
         (poly.points ?? []).map((p: any) => ({ lat: p.latitude, lng: p.longitude }))
       ));
+      setPolyStyles(d.polygons.map((poly: any, i: number) => readStyle(poly.style, i)));
     } else if (Array.isArray(d.polygon) && d.polygon.length > 0) {
       setPolygons([d.polygon.map((p: any) => ({ lat: p.latitude, lng: p.longitude }))]);
+      setPolyStyles([]);
     } else {
       setPolygons([[]]);
+      setPolyStyles([]);
     }
   }, [activeEruv]);
+
+  // A different eruv was picked: start with nothing selected and frame it.
+  // Keyed on the id, not the document, so a snapshot of the same eruv (after
+  // a status save, say) does not drop the selection or move the map. An eruv
+  // with no boundary yet gets its one empty ring selected, so the first click
+  // on the map starts drawing.
+  useEffect(() => {
+    if (!activeEruvId) return;
+    setActivePolygonIdx(initialSelection(activeEruvId));
+    resetSegment();
+    setFitToken(t => t + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeEruvId]);
+
+  /** What to select on opening an eruv: nothing when it has a boundary (every
+   *  ring shows plain), its one empty ring when it has none, so the first
+   *  click on the map starts drawing. */
+  function initialSelection(id: string): number | null {
+    const d = eruvs.find(e => e.id === id) as { polygons?: unknown[]; polygon?: unknown[] } | undefined;
+    const hasBoundary = (d?.polygons?.length ?? 0) > 0 || (d?.polygon?.length ?? 0) > 0;
+    return hasBoundary ? null : 0;
+  }
+
+  function selectEruv(id: string) {
+    setShowAll(false);
+    setActiveEruvId(id);
+    setActivePolygonIdx(initialSelection(id));
+    resetSegment();
+    setFitToken(t => t + 1);
+  }
+
+  function openOverview() {
+    setShowAll(true);
+    setActivePolygonIdx(null);
+    resetSegment();
+    setFitToken(t => t + 1);
+  }
 
   function openCreatePicker() {
     setPicker({ mode: 'create' });
@@ -377,10 +489,10 @@ export default function EruvPage() {
       setSegmentB(newB);
       return;
     }
-    if (segmentMode === 'off') {
+    if (segmentMode === 'off' && activePolygonIdx !== null) {
       updateActivePolygon(prev => [...prev, { lat, lng }]);
     }
-  }, [segmentMode, segmentA, segmentB, updateActivePolygon]);
+  }, [segmentMode, segmentA, segmentB, updateActivePolygon, activePolygonIdx]);
 
   function removeLastPoint() {
     if (segmentMode === 'addPoints' && segmentA !== null && origSegmentA !== null) {
@@ -402,11 +514,19 @@ export default function EruvPage() {
   }
 
   function deleteActivePolygon() {
+    if (activePolygonIdx === null) return;
     if (!window.confirm('למחוק את המצולע הנבחר?')) return;
-    if (polygons.length <= 1) { setPolygons([[]]); resetSegment(); return; }
-    const next = polygons.filter((_, i) => i !== activePolygonIdx);
-    setPolygons(next);
-    setActivePolygonIdx(Math.max(0, activePolygonIdx - 1));
+    if (polygons.length <= 1) { setPolygons([[]]); setPolyStyles([]); setActivePolygonIdx(0); resetSegment(); return; }
+    setPolygons(polygons.filter((_, i) => i !== activePolygonIdx));
+    setPolyStyles(prev => prev.filter((_, i) => i !== activePolygonIdx));
+    setActivePolygonIdx(null);
+    resetSegment();
+  }
+
+  /** Select a ring for editing, or — when it is already selected — put it
+   *  back to a plain shape. */
+  function togglePolygon(i: number) {
+    setActivePolygonIdx(cur => (cur === i ? null : i));
     resetSegment();
   }
 
@@ -446,13 +566,19 @@ export default function EruvPage() {
 
   const handleSavePolygon = async () => {
     if (!activeEruvId) return;
-    const valid = polygons.filter(p => p.length >= 3);
+    const valid = polygons.map((p, i) => ({ p, i })).filter(({ p }) => p.length >= 3);
     if (valid.length === 0) { alert('יש לסמן לפחות מצולע אחד עם 3 נקודות'); return; }
     setSavingPolygon(true);
     setSaveError(null);
     try {
       await setDoc(doc(db, 'eruvStatus', activeEruvId), {
-        polygons: valid.map(poly => ({ points: poly.map(p => ({ latitude: p.lat, longitude: p.lng })) })),
+        polygons: valid.map(({ p, i }) => {
+          const st = styleOf(i);
+          return {
+            points: p.map(pt => ({ latitude: pt.lat, longitude: pt.lng })),
+            style: { color: st.color, fillColor: st.fillColor, fillOpacity: st.fillOpacity },
+          };
+        }),
         updatedBy: appUser?.uid ?? '',
       }, { merge: true });
       setPolygonSaved(true);
@@ -492,7 +618,10 @@ export default function EruvPage() {
     if (segmentMode === 'deletePoint') return 'לחץ על נקודה למחיקה — שכניה יתחברו';
     if (segmentMode === 'bridgeA')     return 'בחר נקודת התחלה לחיבור ישיר';
     if (segmentMode === 'bridgeB')     return `נקודה ${segmentA! + 1} — בחר נקודת סיום לחיבור`;
-    return activePoints.length === 0 ? 'לחץ על המפה להוסיף נקודות' : 'לחץ מפה להוסיף · לחץ נקודה לפעולות';
+    if (activePolygonIdx === null) return 'לחץ על מצולע במפה כדי לערוך אותו';
+    return activePoints.length === 0
+      ? 'לחץ על המפה להוסיף נקודות'
+      : 'לחץ מפה להוסיף · לחץ נקודה לפעולות · לחץ על המצולע לסיום עריכה';
   })();
 
   // ─── Derived data ───────────────────────────────────────────────────────────
@@ -502,6 +631,10 @@ export default function EruvPage() {
   const si              = STATUS_INFO[statusValue];
 
   const mapCenter: [number, number] = city ? [city.latitude, city.longitude] : [31.77, 35.22];
+  // Where to look at an eruv that has no boundary yet: its first settlement.
+  const firstArea = areas.find(a => a.id === activeEruv?.areaIds?.[0]);
+  const eruvCenter: [number, number] = firstArea?.latitude != null && firstArea?.longitude != null
+    ? [firstArea.latitude, firstArea.longitude] : mapCenter;
 
   const validPolygonCount = polygons.filter(p => p.length >= 3).length;
 
@@ -510,7 +643,7 @@ export default function EruvPage() {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800">
-          עירוב{eruvs.length > 1 && activeEruv ? ` · ${eruvLabel(activeEruv)}` : ''}
+          עירוב{overview ? ' · כל היישובים' : eruvs.length > 1 && activeEruv ? ` · ${eruvLabel(activeEruv)}` : ''}
         </h1>
         <p className="text-slate-400 text-sm mt-0.5">ניהול גבולות ומצב העירוב</p>
       </div>
@@ -523,15 +656,23 @@ export default function EruvPage() {
           both already in one combined eruv would have no UI left to reach. */}
       {areas.length > 1 && (
         <div className="flex items-center gap-2 flex-wrap mb-6 relative">
+          {eruvs.length > 1 && (
+            <button onClick={openOverview}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                overview ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}>
+              <MapPin size={12} /> כל העירובים
+            </button>
+          )}
           {eruvs.map(e => {
-            const active = e.id === activeEruvId;
+            const active = !overview && e.id === activeEruvId;
             const dot = e.status === 'valid' ? 'bg-emerald-500' : e.status === 'invalid' ? 'bg-red-500' : 'bg-amber-400';
             return (
               <div key={e.id}
                 className={`flex items-center rounded-full border transition-all ${
                   active ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
                 }`}>
-                <button onClick={() => setActiveEruvId(e.id)}
+                <button onClick={() => selectEruv(e.id)}
                   className="flex items-center gap-1.5 pr-3 pl-1.5 py-1.5 text-xs font-semibold">
                   <span className={`w-2 h-2 rounded-full ${dot}`} />
                   {eruvLabel(e)}
@@ -592,10 +733,16 @@ export default function EruvPage() {
         </div>
       )}
 
+      {/* Two columns on a wide screen: status and reports on the right, the
+          boundary map always on the left — the map is what an admin checks
+          against while doing either, so it no longer hides behind a tab. */}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-start">
+      <div className="min-w-0">
+
       {/* Tab bar */}
       <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit mb-6">
-        {(['status', 'polygon', 'reports'] as TabKey[]).map(t => {
-          const labels: Record<TabKey, string> = { status: 'מצב', polygon: 'גבולות', reports: 'דיווחים' };
+        {(['status', 'reports'] as TabKey[]).map(t => {
+          const labels: Record<TabKey, string> = { status: 'מצב', reports: 'דיווחים' };
           return (
             <button key={t} onClick={() => setTab(t)}
               className={`flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -608,8 +755,49 @@ export default function EruvPage() {
         })}
       </div>
 
+      {/* ── מצב, כל העירובים ── */}
+      {tab === 'status' && overview && (() => {
+        const count = (v: EruvStatusValue) => eruvs.filter(e => (e.status ?? 'unknown') === v).length;
+        return (
+          <div className="space-y-4">
+            <div className="flex gap-2 flex-wrap">
+              {(['valid', 'invalid', 'unknown'] as EruvStatusValue[]).map(v => {
+                const info = STATUS_INFO[v];
+                return (
+                  <div key={v} className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-medium ${info.bg} ${info.color}`}>
+                    <info.Icon size={15} /> {info.label}: <span className="tabular-nums">{count(v)}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+              {[...eruvs].sort((a, b) => eruvLabel(a).localeCompare(eruvLabel(b), 'he')).map(e => {
+                const info = STATUS_INFO[e.status ?? 'unknown'];
+                const rings = overviewRings.filter(r => r.eruv.id === e.id).length;
+                const updated = e.updatedAt?.toDate?.() as Date | undefined;
+                return (
+                  <button key={e.id} onClick={() => selectEruv(e.id)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-right hover:bg-slate-50 transition-colors">
+                    <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: STATUS_MAP_COLOR[e.status ?? 'unknown'] }} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-semibold text-slate-800 truncate">{eruvLabel(e)}</span>
+                      <span className="block text-xs text-slate-400">
+                        {rings === 0 ? 'אין גבולות' : rings === 1 ? 'מצולע אחד' : `${rings} מצולעים`}
+                        {updated ? ` · עודכן ${updated.toLocaleDateString('he-IL')}` : ''}
+                      </span>
+                    </span>
+                    <span className={`text-xs font-semibold ${info.color}`}>{info.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-slate-400">לעדכון מצב או גבולות, בחר עירוב מהרשימה או מהמפה.</p>
+          </div>
+        );
+      })()}
+
       {/* ── מצב ── */}
-      {tab === 'status' && (
+      {tab === 'status' && !overview && (
         <div className="max-w-lg space-y-5">
           <div className={`rounded-xl border p-5 flex items-center gap-4 ${si.bg}`}>
             <si.Icon size={32} className={si.color} />
@@ -665,152 +853,6 @@ export default function EruvPage() {
               {pushSent === 0
                 ? 'אין מכשירים רשומים — לא נשלחה התראה'
                 : `התראה נשלחה ל-${pushSent} מכשירים`}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── גבולות ── */}
-      {tab === 'polygon' && (
-        <div className="space-y-3">
-          {/* Polygon selector row */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {polygons.map((poly, i) => {
-              const isActive = i === activePolygonIdx;
-              const color = isActive ? '#1B3A6B' : POLY_COLORS[(i - 1 + POLY_COLORS.length) % POLY_COLORS.length];
-              return (
-                <button key={i} onClick={() => { setActivePolygonIdx(i); resetSegment(); }}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                    isActive
-                      ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
-                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                  }`}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
-                  מצולע {i + 1}{poly.length > 0 ? ` (${poly.length})` : ''}
-                </button>
-              );
-            })}
-            {polygons.length < 5 && (
-              <button onClick={addPolygon}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50">
-                <Plus size={12} /> הוסף אזור
-              </button>
-            )}
-            {polygons.length > 1 && (
-              <button onClick={deleteActivePolygon}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-red-200 text-red-600 hover:bg-red-50">
-                <Trash2 size={12} /> מחק מצולע {activePolygonIdx + 1}
-              </button>
-            )}
-          </div>
-
-          {/* Toolbar */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Mode buttons */}
-            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
-              <ToolBtn icon={<Undo2 size={14} />} label="בטל" active={false}
-                disabled={activePoints.length === 0}
-                onClick={removeLastPoint} />
-              <ToolBtn icon={<RotateCcw size={14} />} label="נקה" active={false}
-                disabled={activePoints.length === 0}
-                onClick={() => { updateActivePolygon(() => []); resetSegment(); }} />
-              <div className="w-px h-6 bg-slate-300 mx-0.5" />
-              <ToolBtn icon={<GitBranch size={14} />} label="ערוך קטע"
-                active={segmentMode === 'selectA' || segmentMode === 'selectB' || segmentMode === 'addPoints'}
-                disabled={activePoints.length < 2}
-                onClick={() => segmentMode === 'off' ? setSegmentMode('selectA') : resetSegment()}
-                activeColor="bg-blue-600 text-white" />
-              <ToolBtn icon={<Scissors size={14} />} label="מחק נקודה"
-                active={segmentMode === 'deletePoint'}
-                disabled={activePoints.length <= 3}
-                onClick={() => segmentMode === 'deletePoint' ? resetSegment() : setSegmentMode('deletePoint')}
-                activeColor="bg-red-600 text-white" />
-              <ToolBtn icon={<Link size={14} />} label="חיבור ישיר"
-                active={segmentMode === 'bridgeA' || segmentMode === 'bridgeB'}
-                disabled={activePoints.length <= 4}
-                onClick={() => (segmentMode === 'bridgeA' || segmentMode === 'bridgeB') ? resetSegment() : setSegmentMode('bridgeA')}
-                activeColor="bg-orange-500 text-white" />
-            </div>
-
-            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
-              <ToolBtn icon={<Upload size={14} />} label="ייבוא מקובץ" active={false}
-                disabled={!activeEruvId}
-                onClick={() => setImportOpen(true)} />
-              <ToolBtn icon={<Download size={14} />} label="ייצוא CSV" active={false}
-                disabled={polygons.every(p => p.length === 0)}
-                onClick={() => exportEruvPoints(polygons.filter(p => p.length > 0), eruvLabel(activeEruv) || city?.name || 'eruv')} />
-            </div>
-
-            {/* Save button */}
-            <button onClick={handleSavePolygon} disabled={savingPolygon || validPolygonCount === 0 || !activeEruvId}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-[#1B3A6B] text-white rounded-lg text-xs font-semibold hover:bg-[#15306a] disabled:opacity-50 mr-auto">
-              {polygonSaved ? <CheckCircle2 size={13} /> : <Save size={13} />}
-              {polygonSaved ? 'נשמר!' : savingPolygon ? 'שומר...' : `שמור (${validPolygonCount} מצולעים)`}
-            </button>
-          </div>
-
-          {/* Error banner */}
-          {saveError && (
-            <div className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg font-medium flex items-center gap-2">
-              <XCircle size={13} className="flex-shrink-0" />
-              {saveError}
-            </div>
-          )}
-
-          {/* Hint bar */}
-          <div className="px-3 py-2 bg-slate-800/80 text-white text-xs rounded-lg font-medium text-center">
-            {hintText}
-          </div>
-
-          {/* Map */}
-          {!city ? (
-            <div className="h-[520px] rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 text-sm">
-              טוען מפה...
-            </div>
-          ) : (
-            <div className="rounded-xl overflow-hidden border border-slate-200" style={{ height: 520 }}>
-              <MapContainer center={mapCenter} zoom={14} style={{ height: '100%', width: '100%' }}>
-                <FitToPoints token={fitToken} points={polygons.flat()} />
-                <MapTiles defaultSatellite />
-                {(segmentMode === 'off' || segmentMode === 'addPoints') && (
-                  <MapClickHandler onAdd={handleMapClick} />
-                )}
-
-                {/* Non-active polygons */}
-                {polygons.map((poly, polyIdx) => {
-                  if (polyIdx === activePolygonIdx || poly.length < 3) return null;
-                  const color = POLY_COLORS[(polyIdx - 1 + POLY_COLORS.length) % POLY_COLORS.length];
-                  const positions = poly.map(p => [p.lat, p.lng] as [number, number]);
-                  return (
-                    <Polygon key={polyIdx} positions={positions}
-                      pathOptions={{ color, fillColor: color, fillOpacity: 0.12, weight: 2 }} />
-                  );
-                })}
-
-                {/* Active polygon outline */}
-                {activePoints.length > 1 && (() => {
-                  const pts = activePoints.map(p => [p.lat, p.lng] as [number, number]);
-                  if (activePoints.length > 2) pts.push(pts[0]);
-                  return <Polyline positions={pts} pathOptions={{ color: '#1B3A6B', weight: 2.5, dashArray: '7 5' }} />;
-                })()}
-
-                {/* Active polygon markers */}
-                {activePoints.map((p, i) => {
-                  const role = markerRole(i);
-                  return (
-                    <Marker key={`${i}-${role}`} position={[p.lat, p.lng]} icon={ICONS[role]}
-                      draggable={segmentMode === 'off'}
-                      eventHandlers={{
-                        click: () => handleMarkerClick(i),
-                        dragend: e => {
-                          const ll = (e.target as L.Marker).getLatLng();
-                          updateActivePolygon(prev => prev.map((pt, idx) => idx === i ? { lat: ll.lat, lng: ll.lng } : pt));
-                        },
-                      }}
-                    />
-                  );
-                })}
-              </MapContainer>
             </div>
           )}
         </div>
@@ -872,6 +914,253 @@ export default function EruvPage() {
         </div>
       )}
 
+      </div>
+
+      {/* ── גבולות ── */}
+      <div className="min-w-0 space-y-3 xl:sticky xl:top-6">
+          {!overview && (<>
+          {/* Polygon selector row */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {polygons.map((poly, i) => {
+              const isActive = i === activePolygonIdx;
+              const color = styleOf(i).color;
+              return (
+                <button key={i} onClick={() => togglePolygon(i)}
+                  title={isActive ? 'סיום עריכה' : 'עריכת המצולע'}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                    isActive
+                      ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
+                      : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                  }`}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
+                  מצולע {i + 1}{poly.length > 0 ? ` (${poly.length})` : ''}
+                </button>
+              );
+            })}
+            {polygons.length < 5 && (
+              <button onClick={addPolygon}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50">
+                <Plus size={12} /> הוסף אזור
+              </button>
+            )}
+            {polygons.length > 1 && activePolygonIdx !== null && (
+              <button onClick={deleteActivePolygon}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-red-200 text-red-600 hover:bg-red-50">
+                <Trash2 size={12} /> מחק מצולע {(activePolygonIdx ?? 0) + 1}
+              </button>
+            )}
+          </div>
+
+          {/* Look of the selected ring */}
+          {activePolygonIdx !== null && (() => {
+            const idx = activePolygonIdx;
+            const st = styleOf(idx);
+            const transparency = Math.round((1 - st.fillOpacity) * 100);
+            return (
+              <div className="flex items-center gap-x-5 gap-y-2 flex-wrap bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-600">
+                <span className="font-semibold text-slate-700">עיצוב מצולע {idx + 1}</span>
+                <label className="flex items-center gap-1.5">
+                  צבע קו
+                  <input type="color" value={st.color}
+                    onChange={e => updateStyle(idx, { color: e.target.value })}
+                    className="w-7 h-7 rounded cursor-pointer border border-slate-200 bg-white p-0.5" />
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={st.fillColor === null}
+                    onChange={e => updateStyle(idx, { fillColor: e.target.checked ? null : st.color })}
+                    className="rounded border-slate-300" />
+                  מילוי בצבע הקו
+                </label>
+                {st.fillColor !== null && (
+                  <label className="flex items-center gap-1.5">
+                    צבע מילוי
+                    <input type="color" value={st.fillColor}
+                      onChange={e => updateStyle(idx, { fillColor: e.target.value })}
+                      className="w-7 h-7 rounded cursor-pointer border border-slate-200 bg-white p-0.5" />
+                  </label>
+                )}
+                <label className="flex items-center gap-2">
+                  שקיפות מילוי
+                  <input type="range" min={0} max={100} step={5} value={transparency}
+                    onChange={e => updateStyle(idx, { fillOpacity: 1 - Number(e.target.value) / 100 })}
+                    className="w-28 accent-[#1B3A6B]" />
+                  <span className="tabular-nums w-9 text-left">{transparency}%</span>
+                </label>
+                <button onClick={() => updateStyle(idx, defaultStyle(idx))}
+                  className="text-blue-600 hover:underline mr-auto">
+                  ברירת מחדל
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Toolbar */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Mode buttons */}
+            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+              <ToolBtn icon={<Undo2 size={14} />} label="בטל" active={false}
+                disabled={activePoints.length === 0}
+                onClick={removeLastPoint} />
+              <ToolBtn icon={<RotateCcw size={14} />} label="נקה" active={false}
+                disabled={activePoints.length === 0}
+                onClick={() => { updateActivePolygon(() => []); resetSegment(); }} />
+              <div className="w-px h-6 bg-slate-300 mx-0.5" />
+              <ToolBtn icon={<GitBranch size={14} />} label="ערוך קטע"
+                active={segmentMode === 'selectA' || segmentMode === 'selectB' || segmentMode === 'addPoints'}
+                disabled={activePoints.length < 2}
+                onClick={() => segmentMode === 'off' ? setSegmentMode('selectA') : resetSegment()}
+                activeColor="bg-blue-600 text-white" />
+              <ToolBtn icon={<Scissors size={14} />} label="מחק נקודה"
+                active={segmentMode === 'deletePoint'}
+                disabled={activePoints.length <= 3}
+                onClick={() => segmentMode === 'deletePoint' ? resetSegment() : setSegmentMode('deletePoint')}
+                activeColor="bg-red-600 text-white" />
+              <ToolBtn icon={<Link size={14} />} label="חיבור ישיר"
+                active={segmentMode === 'bridgeA' || segmentMode === 'bridgeB'}
+                disabled={activePoints.length <= 4}
+                onClick={() => (segmentMode === 'bridgeA' || segmentMode === 'bridgeB') ? resetSegment() : setSegmentMode('bridgeA')}
+                activeColor="bg-orange-500 text-white" />
+            </div>
+
+            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+              <ToolBtn icon={<Upload size={14} />} label="ייבוא מקובץ" active={false}
+                disabled={!activeEruvId}
+                onClick={() => setImportOpen(true)} />
+              <ToolBtn icon={<Download size={14} />} label="ייצוא CSV" active={false}
+                disabled={polygons.every(p => p.length === 0)}
+                onClick={() => exportEruvPoints(polygons.filter(p => p.length > 0), eruvLabel(activeEruv) || city?.name || 'eruv')} />
+            </div>
+
+            {/* Save button */}
+            <button onClick={handleSavePolygon} disabled={savingPolygon || validPolygonCount === 0 || !activeEruvId}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-[#1B3A6B] text-white rounded-lg text-xs font-semibold hover:bg-[#15306a] disabled:opacity-50 mr-auto">
+              {polygonSaved ? <CheckCircle2 size={13} /> : <Save size={13} />}
+              {polygonSaved ? 'נשמר!' : savingPolygon ? 'שומר...' : `שמור (${validPolygonCount} מצולעים)`}
+            </button>
+          </div>
+
+          </>)}
+
+          {/* Error banner */}
+          {saveError && (
+            <div className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg font-medium flex items-center gap-2">
+              <XCircle size={13} className="flex-shrink-0" />
+              {saveError}
+            </div>
+          )}
+
+          {/* Hint bar */}
+          <div className="px-3 py-2 bg-slate-800/80 text-white text-xs rounded-lg font-medium text-center">
+            {overview ? 'כל העירובים, לפי מצב · לחץ על עירוב כדי לערוך אותו' : hintText}
+          </div>
+          {overview && (
+            <div className="flex items-center gap-4 text-xs text-slate-500">
+              {(['valid', 'invalid', 'unknown'] as EruvStatusValue[]).map(v => (
+                <span key={v} className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-sm" style={{ background: STATUS_MAP_COLOR[v], opacity: 0.8 }} />
+                  {STATUS_INFO[v].label}
+                </span>
+              ))}
+              {eruvs.length > new Set(overviewRings.map(r => r.eruv.id)).size && (
+                <span className="text-slate-400 mr-auto">
+                  {eruvs.length - new Set(overviewRings.map(r => r.eruv.id)).size} עירובים בלי גבולות
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Map */}
+          {!city ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-400 text-sm" style={{ height: MAP_HEIGHT }}>
+              טוען מפה...
+            </div>
+          ) : (
+            <div className="rounded-xl overflow-hidden border border-slate-200" style={{ height: MAP_HEIGHT }}>
+              <MapContainer center={mapCenter} zoom={14} style={{ height: '100%', width: '100%' }}>
+                <FitToPoints token={fitToken}
+                  points={overview ? overviewRings.flatMap(r => r.points) : polygons.flat()}
+                  fallback={overview ? mapCenter : eruvCenter} />
+                <MapTiles defaultSatellite />
+                {!overview && (segmentMode === 'off' || segmentMode === 'addPoints') && (
+                  <MapClickHandler onAdd={handleMapClick} />
+                )}
+
+                {overview && overviewRings.map(r => {
+                  const color = STATUS_MAP_COLOR[r.eruv.status ?? 'unknown'];
+                  return (
+                    <Polygon key={r.key}
+                      positions={r.points.map(p => [p.lat, p.lng] as [number, number])}
+                      pathOptions={{ color, fillColor: color, fillOpacity: 0.25, weight: 2.5 }}
+                      eventHandlers={{ click: () => selectEruv(r.eruv.id) }}>
+                      <Tooltip sticky>
+                        {eruvLabel(r.eruv)} · {STATUS_INFO[r.eruv.status ?? 'unknown'].label}
+                      </Tooltip>
+                    </Polygon>
+                  );
+                })}
+
+                {!overview && (<>
+
+                {/* Every ring not being edited: a plain filled shape. Clicking one
+                    selects it. bubblingMouseEvents off, or the same click would
+                    also reach the map and add a point to whatever was selected. */}
+                {polygons.map((poly, polyIdx) => {
+                  if (polyIdx === activePolygonIdx || poly.length < 3) return null;
+                  const st = styleOf(polyIdx);
+                  return (
+                    <Polygon key={`ring-${polyIdx}`}
+                      positions={poly.map(p => [p.lat, p.lng] as [number, number])}
+                      pathOptions={{
+                        color: st.color, fillColor: st.fillColor ?? st.color, fillOpacity: st.fillOpacity,
+                        weight: 2.5, bubblingMouseEvents: false,
+                      }}
+                      eventHandlers={{ click: () => { if (segmentMode === 'off') togglePolygon(polyIdx); } }} />
+                  );
+                })}
+
+                {/* The ring being edited: dashed, with its points. Clicking inside
+                    it ends editing — except while adding points to a segment,
+                    when the click has to reach the map (keyed on the mode, since
+                    Leaflet reads bubblingMouseEvents only when the layer is made). */}
+                {activePolygonIdx !== null && activePoints.length > 2 && (
+                  <Polygon key={`active-${activePolygonIdx}-${segmentMode}`}
+                    positions={activePoints.map(p => [p.lat, p.lng] as [number, number])}
+                    pathOptions={{
+                      color: styleOf(activePolygonIdx).color,
+                      fillColor: styleOf(activePolygonIdx).fillColor ?? styleOf(activePolygonIdx).color,
+                      fillOpacity: styleOf(activePolygonIdx).fillOpacity, weight: 2.5, dashArray: '7 5',
+                      bubblingMouseEvents: segmentMode === 'addPoints',
+                    }}
+                    eventHandlers={{ click: () => { if (segmentMode === 'off') togglePolygon(activePolygonIdx); } }} />
+                )}
+                {activePolygonIdx !== null && activePoints.length === 2 && (
+                  <Polyline positions={activePoints.map(p => [p.lat, p.lng] as [number, number])}
+                    pathOptions={{ color: styleOf(activePolygonIdx).color, weight: 2.5, dashArray: '7 5' }} />
+                )}
+
+                {/* Active polygon markers */}
+                {activePoints.map((p, i) => {
+                  const role = markerRole(i);
+                  return (
+                    <Marker key={`${i}-${role}`} position={[p.lat, p.lng]} icon={ICONS[role]}
+                      draggable={segmentMode === 'off'}
+                      eventHandlers={{
+                        click: () => handleMarkerClick(i),
+                        dragend: e => {
+                          const ll = (e.target as L.Marker).getLatLng();
+                          updateActivePolygon(prev => prev.map((pt, idx) => idx === i ? { lat: ll.lat, lng: ll.lng } : pt));
+                        },
+                      }}
+                    />
+                  );
+                })}
+                </>)}
+              </MapContainer>
+            </div>
+          )}
+      </div>
+      </div>
+
       <EruvPointsImportModal
         open={importOpen}
         onClose={() => setImportOpen(false)}
@@ -879,7 +1168,8 @@ export default function EruvPage() {
         hasExisting={polygons.some(p => p.length > 0)}
         onLoad={loaded => {
           setPolygons(loaded);
-          setActivePolygonIdx(0);
+          setPolyStyles([]);
+          setActivePolygonIdx(null);
           resetSegment();
           setFitToken(t => t + 1);
         }}
