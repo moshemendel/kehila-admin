@@ -1,0 +1,28 @@
+{
+  "hosting": {
+    "site": "kehila-admin-386ab",
+    "public": "hosting",
+    "predeploy": [
+      "npm --prefix \"$PROJECT_DIR\" run build",
+      "node \"$PROJECT_DIR/scripts/stage-hosting.mjs\""
+    ],
+    "ignore": ["**/.*"],
+    "redirects": [
+      { "source": "/", "destination": "/app/admin/", "type": 302 }
+    ],
+    "rewrites": [
+      { "source": "/app/admin", "destination": "/app/admin/index.html" },
+      { "source": "/app/admin/**", "destination": "/app/admin/index.html" }
+    ],
+    "headers": [
+      {
+        "source": "/app/admin/assets/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      },
+      {
+        "source": "**/*.html",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
+    ]
+  }
+}

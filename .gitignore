@@ -32,3 +32,7 @@ dist-ssr
 # .env.example documents what belongs here.
 .env
 .env.local
+
+# Firebase Hosting staging (scripts/stage-hosting.mjs) and CLI cache
+hosting
+.firebase
