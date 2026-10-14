@@ -9,7 +9,8 @@ import { useAuth } from '../contexts/AuthContext';
 import type { Cemetery, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
-import { Plus, Trash2, Flower2 } from 'lucide-react';
+import { Plus, Trash2, Flower2, MapPin } from 'lucide-react';
+import CemeteryPlotsModal from '../components/CemeteryPlotsModal';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
 
 const EMPTY_FORM = {
@@ -38,6 +39,7 @@ export default function CemeteriesPage() {
   const [editId,     setEditId]     = useState<string | null>(null);
   const [saving,     setSaving]     = useState(false);
   const [deleteId,   setDeleteId]   = useState<string | null>(null);
+  const [plotsFor,   setPlotsFor]   = useState<Cemetery | null>(null);
 
   const load = async () => {
     if (!cityId) return;
@@ -164,9 +166,19 @@ export default function CemeteriesPage() {
           data={cemeteries}
           searchKeys={['name', 'contactName']}
           onRowClick={isAdmin ? openEdit : undefined}
-          actionsHeader="מחיקה"
+          actionsHeader="פעולות"
           actions={isAdmin ? (c) => (
-            <button onClick={() => setDeleteId(c.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={(e) => { e.stopPropagation(); setPlotsFor(c); }}
+                title="מיקום חלקות"
+                className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-xs font-semibold"
+              >
+                <MapPin size={14} />
+                חלקות{c.registerPlots?.length ? ` (${Object.keys(c.plots ?? {}).length}/${c.registerPlots.length})` : ''}
+              </button>
+              <button onClick={() => setDeleteId(c.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
+            </div>
           ) : undefined}
         />
       )}
@@ -309,6 +321,7 @@ export default function CemeteriesPage() {
           </button>
         </div>
       </Modal>
+      <CemeteryPlotsModal cemetery={plotsFor} onClose={() => setPlotsFor(null)} onSaved={load} />
     </div>
   );
 }

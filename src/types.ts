@@ -424,5 +424,10 @@ export interface Cemetery {
   latitude?: number;
   longitude?: number;
   notes?: string;
+  /** Where each plot (חלקה) is, by its name in the burial register. Mirrors
+   *  Cemetery.plots in the app; pinned in CemeteryPlotsModal. */
+  plots?: Record<string, { latitude: number; longitude: number }>;
+  /** Plot names from the register, written by the weekly deceased sync. */
+  registerPlots?: string[];
   updatedAt?: any;
 }
