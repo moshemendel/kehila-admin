@@ -8,14 +8,16 @@ import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import type { City } from '../types';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, Marker, Polyline, Polygon, useMapEvents } from 'react-leaflet';
+import { MapContainer, Marker, Polyline, Polygon, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import {
   CheckCircle2, XCircle, HelpCircle, Trash2, Undo2, RotateCcw,
-  MapPin, Save, GitBranch, Scissors, Link, Plus, Bell, Pencil,
+  MapPin, Save, GitBranch, Scissors, Link, Plus, Bell, Pencil, Upload, Download,
 } from 'lucide-react';
 import { sendEruvStatusPush } from '../utils/push';
 import MapTiles from '../components/MapTiles';
+import EruvPointsImportModal from '../components/EruvPointsImportModal';
+import { exportEruvPoints } from '../utils/eruvPoints';
 
 // ─── Local types ──────────────────────────────────────────────────────────────
 
@@ -98,6 +100,19 @@ function MapClickHandler({ onAdd }: { onAdd: (lat: number, lng: number) => void 
   return null;
 }
 
+/** Zooms to the given points each time `token` changes — after a file import,
+ *  whose points may be nowhere near the current view. */
+function FitToPoints({ token, points }: { token: number; points: EruvCoord[] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!token || points.length === 0) return;
+    map.fitBounds(L.latLngBounds(points.map(p => [p.lat, p.lng] as [number, number])), { padding: [30, 30] });
+    // Only on a new import, not on every point edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  return null;
+}
+
 // ─── Status config ────────────────────────────────────────────────────────────
 
 const STATUS_INFO: Record<EruvStatusValue, { label: string; color: string; bg: string; Icon: any }> = {
@@ -129,6 +144,9 @@ export default function EruvPage() {
   const [savingPolygon,    setSavingPolygon]    = useState(false);
   const [polygonSaved,     setPolygonSaved]     = useState(false);
   const [saveError,        setSaveError]        = useState<string | null>(null);
+  const [importOpen,       setImportOpen]       = useState(false);
+  // Bumped after an import so the map zooms to the loaded points.
+  const [fitToken,         setFitToken]         = useState(0);
   const [pushSent,         setPushSent]         = useState<number | null>(null);
 
   // Segment editing state
@@ -714,6 +732,15 @@ export default function EruvPage() {
                 activeColor="bg-orange-500 text-white" />
             </div>
 
+            <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+              <ToolBtn icon={<Upload size={14} />} label="ייבוא מקובץ" active={false}
+                disabled={!activeEruvId}
+                onClick={() => setImportOpen(true)} />
+              <ToolBtn icon={<Download size={14} />} label="ייצוא CSV" active={false}
+                disabled={polygons.every(p => p.length === 0)}
+                onClick={() => exportEruvPoints(polygons.filter(p => p.length > 0), eruvLabel(activeEruv) || city?.name || 'eruv')} />
+            </div>
+
             {/* Save button */}
             <button onClick={handleSavePolygon} disabled={savingPolygon || validPolygonCount === 0 || !activeEruvId}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-[#1B3A6B] text-white rounded-lg text-xs font-semibold hover:bg-[#15306a] disabled:opacity-50 mr-auto">
@@ -743,6 +770,7 @@ export default function EruvPage() {
           ) : (
             <div className="rounded-xl overflow-hidden border border-slate-200" style={{ height: 520 }}>
               <MapContainer center={mapCenter} zoom={14} style={{ height: '100%', width: '100%' }}>
+                <FitToPoints token={fitToken} points={polygons.flat()} />
                 <MapTiles defaultSatellite />
                 {(segmentMode === 'off' || segmentMode === 'addPoints') && (
                   <MapClickHandler onAdd={handleMapClick} />
@@ -843,6 +871,19 @@ export default function EruvPage() {
           )}
         </div>
       )}
+
+      <EruvPointsImportModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        centre={city ? { lat: city.latitude, lng: city.longitude } : undefined}
+        hasExisting={polygons.some(p => p.length > 0)}
+        onLoad={loaded => {
+          setPolygons(loaded);
+          setActivePolygonIdx(0);
+          resetSegment();
+          setFitToken(t => t + 1);
+        }}
+      />
     </div>
   );
 }
