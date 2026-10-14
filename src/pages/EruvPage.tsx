@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   doc, getDoc, setDoc, addDoc, getDocs, collection, query, where,
-  onSnapshot, updateDoc, serverTimestamp, orderBy,
+  onSnapshot, updateDoc, serverTimestamp, orderBy, deleteField,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
@@ -12,7 +12,7 @@ import { MapContainer, Marker, Polyline, Polygon, useMapEvents } from 'react-lea
 import L from 'leaflet';
 import {
   CheckCircle2, XCircle, HelpCircle, Trash2, Undo2, RotateCcw,
-  MapPin, Save, GitBranch, Scissors, Link, Plus, Bell,
+  MapPin, Save, GitBranch, Scissors, Link, Plus, Bell, Pencil,
 } from 'lucide-react';
 import { sendEruvStatusPush } from '../utils/push';
 import MapTiles from '../components/MapTiles';
@@ -56,6 +56,13 @@ interface EruvStatusDoc {
 }
 
 interface AreaOption { id: string; name: string; }
+
+// Picker used both to create a brand-new eruv (checking one or more
+// uncovered settlements) and to edit an existing eruv's areaIds (checking
+// its own settlements plus any still-uncovered ones) — same UI, since both
+// are "which settlements does this eruv cover" with a different starting
+// selection.
+type EruvPicker = { mode: 'create' } | { mode: 'edit'; eruv: EruvStatusDoc };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -140,10 +147,27 @@ export default function EruvPage() {
   const [eruvs,        setEruvs]        = useState<EruvStatusDoc[]>([]);
   const [activeEruvId, setActiveEruvId] = useState<string | null>(null);
   const [areas,        setAreas]        = useState<AreaOption[]>([]);
-  const [addingEruv,   setAddingEruv]   = useState(false);
+
+  // Create/edit picker — see EruvPicker above.
+  const [picker,         setPicker]         = useState<EruvPicker | null>(null);
+  const [pickerSelected, setPickerSelected] = useState<Set<string>>(new Set());
+  const [pickerLabel,    setPickerLabel]    = useState('');
+  const [pickerSaving,   setPickerSaving]   = useState(false);
+  const [pickerError,    setPickerError]    = useState<string | null>(null);
+
   const activeEruv = useMemo(() => eruvs.find(e => e.id === activeEruvId) ?? null, [eruvs, activeEruvId]);
   const coveredAreaIds = useMemo(() => new Set(eruvs.flatMap(e => e.areaIds ?? [])), [eruvs]);
   const uncoveredAreas = useMemo(() => areas.filter(a => !coveredAreaIds.has(a.id)), [areas, coveredAreaIds]);
+  // Areas selectable in the picker: for a new eruv, whatever's uncovered; for
+  // editing an existing one, that plus its own current areas (which read as
+  // "covered" globally, but must stay checkable so they can be kept or
+  // unchecked) — everything covered by ANOTHER eruv stays hidden either way.
+  const pickerAvailableAreas = useMemo(() => {
+    if (!picker) return [];
+    if (picker.mode === 'create') return uncoveredAreas;
+    const ownIds = new Set(picker.eruv.areaIds ?? []);
+    return areas.filter(a => ownIds.has(a.id) || !coveredAreaIds.has(a.id));
+  }, [picker, areas, uncoveredAreas, coveredAreaIds]);
   function eruvLabel(e: EruvStatusDoc | null): string {
     if (!e) return '';
     if (e.label) return e.label;
@@ -209,16 +233,56 @@ export default function EruvPage() {
     }
   }, [activeEruv]);
 
-  async function handleAddEruv(area: AreaOption) {
-    setAddingEruv(false);
+  function openCreatePicker() {
+    setPicker({ mode: 'create' });
+    setPickerSelected(new Set());
+    setPickerLabel('');
+    setPickerError(null);
+  }
+
+  function openEditPicker(eruv: EruvStatusDoc) {
+    setPicker({ mode: 'edit', eruv });
+    setPickerSelected(new Set(eruv.areaIds ?? []));
+    setPickerLabel(eruv.label ?? '');
+    setPickerError(null);
+  }
+
+  function togglePickerArea(id: string) {
+    setPickerSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleConfirmPicker() {
+    if (!picker || pickerSelected.size === 0) return;
+    const areaIds = Array.from(pickerSelected);
+    const label = pickerLabel.trim();
+    setPickerSaving(true);
+    setPickerError(null);
     try {
-      const ref = await addDoc(collection(db, 'eruvStatus'), {
-        cityId, areaIds: [area.id], label: area.name,
-        status: 'unknown', updatedBy: appUser?.uid ?? '', updatedAt: serverTimestamp(),
-      });
-      setActiveEruvId(ref.id);
+      if (picker.mode === 'create') {
+        const ref = await addDoc(collection(db, 'eruvStatus'), {
+          cityId, areaIds, ...(label ? { label } : {}),
+          status: 'unknown', updatedBy: appUser?.uid ?? '', updatedAt: serverTimestamp(),
+        });
+        setActiveEruvId(ref.id);
+      } else {
+        // Merge so polygons/status on this eruv are left untouched; deleteField
+        // clears a label the admin blanked back out, so it falls back to the
+        // auto joined-names display again instead of keeping a stale value.
+        await setDoc(doc(db, 'eruvStatus', picker.eruv.id), {
+          areaIds,
+          label: label ? label : deleteField(),
+          updatedBy: appUser?.uid ?? '', updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+      setPicker(null);
     } catch (e: any) {
-      setSaveError(e?.message ?? 'שגיאה בהוספת יישוב');
+      setPickerError(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setPickerSaving(false);
     }
   }
 
@@ -433,36 +497,78 @@ export default function EruvPage() {
         <p className="text-slate-400 text-sm mt-0.5">ניהול גבולות ומצב העירוב</p>
       </div>
 
-      {/* Settlement row — hidden for a plain single-eruv city */}
-      {(eruvs.length > 1 || uncoveredAreas.length > 0) && (
+      {/* Settlement row — hidden for a plain single-area city. Shown whenever
+          there's more than one area at all (not just more than one eruv, or
+          uncovered areas left) so a regional council whose settlements are
+          already fully assigned into eruvin still has a way to reach the
+          edit picker below — otherwise a council with e.g. 2 settlements
+          both already in one combined eruv would have no UI left to reach. */}
+      {areas.length > 1 && (
         <div className="flex items-center gap-2 flex-wrap mb-6 relative">
           {eruvs.map(e => {
             const active = e.id === activeEruvId;
             const dot = e.status === 'valid' ? 'bg-emerald-500' : e.status === 'invalid' ? 'bg-red-500' : 'bg-amber-400';
             return (
-              <button key={e.id} onClick={() => setActiveEruvId(e.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+              <div key={e.id}
+                className={`flex items-center rounded-full border transition-all ${
                   active ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
                 }`}>
-                <span className={`w-2 h-2 rounded-full ${dot}`} />
-                {eruvLabel(e)}
-              </button>
+                <button onClick={() => setActiveEruvId(e.id)}
+                  className="flex items-center gap-1.5 pr-3 pl-1.5 py-1.5 text-xs font-semibold">
+                  <span className={`w-2 h-2 rounded-full ${dot}`} />
+                  {eruvLabel(e)}
+                </button>
+                <button onClick={() => openEditPicker(e)} title="ערוך יישובים"
+                  className={`p-1.5 ml-0.5 mr-1.5 rounded-full ${active ? 'hover:bg-white/20' : 'hover:bg-slate-100'}`}>
+                  <Pencil size={11} />
+                </button>
+              </div>
             );
           })}
           {uncoveredAreas.length > 0 && (
-            <button onClick={() => setAddingEruv(v => !v)}
+            <button onClick={openCreatePicker}
               className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border border-dashed border-blue-400 text-blue-600 hover:bg-blue-50">
-              <Plus size={12} /> הוסף יישוב
+              <Plus size={12} /> עירוב חדש
             </button>
           )}
-          {addingEruv && (
-            <div className="absolute top-full right-0 mt-1 w-56 bg-white rounded-xl border border-slate-200 shadow-lg py-1.5 z-10 max-h-72 overflow-y-auto">
-              {uncoveredAreas.map(a => (
-                <button key={a.id} onClick={() => handleAddEruv(a)}
-                  className="w-full text-right px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
-                  {a.name}
+          {picker && (
+            <div className="absolute top-full right-0 mt-1 w-72 bg-white rounded-xl border border-slate-200 shadow-lg p-3 z-10">
+              <div className="text-xs font-semibold text-slate-700 mb-2">
+                {picker.mode === 'edit' ? `עריכת יישובים · ${eruvLabel(picker.eruv)}` : 'עירוב חדש'}
+              </div>
+              <input value={pickerLabel} onChange={e => setPickerLabel(e.target.value)}
+                placeholder="שם תצוגה (אופציונלי)"
+                className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400" />
+              <div className="max-h-56 overflow-y-auto space-y-0.5 mb-2">
+                {pickerAvailableAreas.length === 0 && (
+                  <div className="text-xs text-slate-400 py-2 text-center">אין יישובים זמינים</div>
+                )}
+                {pickerAvailableAreas.map(a => {
+                  const checked = pickerSelected.has(a.id);
+                  return (
+                    <label key={a.id}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-slate-700 hover:bg-slate-50 cursor-pointer">
+                      <input type="checkbox" checked={checked} onChange={() => togglePickerArea(a.id)}
+                        className="rounded border-slate-300" />
+                      {a.name}
+                    </label>
+                  );
+                })}
+              </div>
+              {pickerError && <div className="text-xs text-red-600 mb-2">{pickerError}</div>}
+              {pickerSelected.size === 0 && (
+                <div className="text-xs text-slate-400 mb-2">בחר לפחות יישוב אחד</div>
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => setPicker(null)}
+                  className="flex-1 px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">
+                  ביטול
                 </button>
-              ))}
+                <button onClick={handleConfirmPicker} disabled={pickerSelected.size === 0 || pickerSaving}
+                  className="flex-1 px-3 py-1.5 text-xs font-semibold text-white bg-[#1B3A6B] rounded-lg hover:bg-[#15306a] disabled:opacity-50">
+                  {pickerSaving ? 'שומר...' : picker.mode === 'edit' ? 'שמור' : 'צור'}
+                </button>
+              </div>
             </div>
           )}
         </div>
