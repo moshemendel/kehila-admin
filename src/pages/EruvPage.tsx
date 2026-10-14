@@ -157,8 +157,8 @@ const STATUS_INFO: Record<EruvStatusValue, { label: string; color: string; bg: s
 
 type TabKey = 'status' | 'reports';
 
-// The all-eruvin map colours each eruv by its status, so the council-wide
-// picture reads at a glance; per-ring styling is for the single-eruv editor.
+// Status dot colours in the all-eruvin list. The map itself draws each ring
+// in its own saved style, the same as in the single-eruv editor.
 const STATUS_MAP_COLOR: Record<EruvStatusValue, string> = {
   valid: '#059669', invalid: '#dc2626', unknown: '#d97706',
 };
@@ -225,12 +225,13 @@ export default function EruvPage() {
   const [showAll, setShowAll] = useState(true);
   const overview = showAll && eruvs.length > 1;
   const overviewRings = useMemo(() => eruvs.flatMap(e => {
-    const raw = (e as { polygons?: { points?: { latitude: number; longitude: number }[] }[] }).polygons ?? [];
+    const raw = (e as { polygons?: { points?: { latitude: number; longitude: number }[]; style?: unknown }[] }).polygons ?? [];
     return raw
       .map((poly, i) => ({
         eruv: e,
         key: `${e.id}-${i}`,
         points: (poly.points ?? []).map(p => ({ lat: p.latitude, lng: p.longitude })),
+        style: readStyle(poly.style, i),
       }))
       .filter(r => r.points.length >= 3);
   }), [eruvs]);
@@ -1051,16 +1052,22 @@ export default function EruvPage() {
 
           {/* Hint bar */}
           <div className="px-3 py-2 bg-slate-800/80 text-white text-xs rounded-lg font-medium text-center">
-            {overview ? 'כל העירובים, לפי מצב · לחץ על עירוב כדי לערוך אותו' : hintText}
+            {overview ? 'כל העירובים · לחץ על עירוב כדי לערוך אותו' : hintText}
           </div>
           {overview && (
-            <div className="flex items-center gap-4 text-xs text-slate-500">
-              {(['valid', 'invalid', 'unknown'] as EruvStatusValue[]).map(v => (
-                <span key={v} className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-sm" style={{ background: STATUS_MAP_COLOR[v], opacity: 0.8 }} />
-                  {STATUS_INFO[v].label}
-                </span>
-              ))}
+            <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap text-xs text-slate-500">
+              {eruvs.map(e => {
+                const first = overviewRings.find(r => r.eruv.id === e.id);
+                if (!first) return null;
+                return (
+                  <button key={e.id} onClick={() => selectEruv(e.id)}
+                    className="flex items-center gap-1.5 hover:text-slate-800">
+                    <span className="w-3 h-3 rounded-sm border"
+                      style={{ background: first.style.fillColor ?? first.style.color, borderColor: first.style.color }} />
+                    {eruvLabel(e)}
+                  </button>
+                );
+              })}
               {eruvs.length > new Set(overviewRings.map(r => r.eruv.id)).size && (
                 <span className="text-slate-400 mr-auto">
                   {eruvs.length - new Set(overviewRings.map(r => r.eruv.id)).size} עירובים בלי גבולות
@@ -1086,11 +1093,11 @@ export default function EruvPage() {
                 )}
 
                 {overview && overviewRings.map(r => {
-                  const color = STATUS_MAP_COLOR[r.eruv.status ?? 'unknown'];
+                  const st = r.style;
                   return (
                     <Polygon key={r.key}
                       positions={r.points.map(p => [p.lat, p.lng] as [number, number])}
-                      pathOptions={{ color, fillColor: color, fillOpacity: 0.25, weight: 2.5 }}
+                      pathOptions={{ color: st.color, fillColor: st.fillColor ?? st.color, fillOpacity: st.fillOpacity, weight: 2.5 }}
                       eventHandlers={{ click: () => selectEruv(r.eruv.id) }}>
                       <Tooltip sticky>
                         {eruvLabel(r.eruv)} · {STATUS_INFO[r.eruv.status ?? 'unknown'].label}
