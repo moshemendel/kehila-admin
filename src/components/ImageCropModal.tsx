@@ -8,7 +8,9 @@ import Modal from './Modal';
 
 // ─── Canvas crop helper ───────────────────────────────────────────────────────
 
-async function getCroppedBlob(img: HTMLImageElement, px: PixelCrop, maxDim = 1800): Promise<Blob> {
+// Same ceiling as the app's uploadImage (1280px, JPEG 0.8): everything uploaded is shown on a
+// phone screen, and every viewer downloads whatever size is stored here.
+async function getCroppedBlob(img: HTMLImageElement, px: PixelCrop, maxDim = 1280): Promise<Blob> {
   const sx = img.naturalWidth  / img.width;
   const sy = img.naturalHeight / img.height;
 
@@ -34,7 +36,7 @@ async function getCroppedBlob(img: HTMLImageElement, px: PixelCrop, maxDim = 180
   );
 
   return new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('canvas empty'))), 'image/jpeg', 0.92)
+    canvas.toBlob(b => (b ? resolve(b) : reject(new Error('canvas empty'))), 'image/jpeg', 0.8)
   );
 }
 
