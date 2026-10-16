@@ -1,3 +1,5 @@
+import type { ZmanimSettings } from './utils/zmanim';
+
 export type GemachCategory =
   | 'clothing' | 'baby' | 'medical' | 'food' | 'books'
   | 'wedding' | 'household' | 'tools' | 'other';
@@ -91,6 +93,11 @@ export interface City {
    *  this city's staff and super admins. Mirrors City.hidden in the app.
    *  New cities start hidden; absent = live. */
   hidden?: boolean;
+  /** The zmanim method the city publishes by. Mirrors City.zmanimSettings in
+   *  the app; absent = אור החיים. */
+  zmanimSettings?: ZmanimSettings;
+  /** A line shown under the city's zmanim. Mirrors City.zmanimNote. */
+  zmanimNote?: string;
 }
 
 /**
@@ -172,6 +179,9 @@ export interface Synagogue {
   /** Which custom decides when this shul's selichot begin — re-derived yearly.
    *  See kehila-app/src/types/index.ts. */
   selichotCustom?: 'sephardi' | 'ashkenazi';
+  /** This shul's own zmanim method for its anchored prayer times; absent =
+   *  follow the city's. Mirrors Synagogue.zmanimSettings in the app. */
+  zmanimSettings?: ZmanimSettings;
   id: string;
   cityId: string;
   /** Which of the tenant's areas this shul is in — a regional council's

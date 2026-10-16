@@ -11,7 +11,7 @@ import type { City, UserRole } from '../types';
 import {
   Building2, Droplets, UtensilsCrossed, CalendarDays,
   Users, LayoutDashboard, Map, LogOut, Store, Shield, Gift,
-  BarChart2, Activity, Bell, Settings, Flag, Flower2,
+  BarChart2, Activity, Bell, Settings, Flag, Flower2, Clock,
 } from 'lucide-react';
 
 // ─── Tab definitions ──────────────────────────────────────────────────────────
@@ -50,6 +50,7 @@ const TABS = [
   { sub: 'reports',    label: 'דיווחים',     icon: Flag,            access: 'content',
     specialist: ['synagogue_manager','gabbai','business_manager','kosher_manager','mashgiach','mikveh_manager','mikveh_attendant','event_manager'] },
   { sub: 'users',      label: 'משתמשים',    icon: Users,           access: 'authority', delegators: true },
+  { sub: 'zmanim',     label: 'זמני העיר',   icon: Clock,           access: 'authority' },
   { sub: 'settings',   label: 'הגדרות עיר', icon: Settings,        access: 'authority' },
 ] as const;
 

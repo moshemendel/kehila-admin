@@ -18,6 +18,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { nanoid } from '../utils/nanoid';
 import MapTiles from '../components/MapTiles';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
+import ZmanimMethodEditor from '../components/ZmanimMethodEditor';
+import { PRESET_RAV_OVADIA, ZMANIM_PRESETS } from '../utils/zmanim';
+import type { ZmanimSettings } from '../utils/zmanim';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -441,7 +444,7 @@ export function MapPicker({ lat, lng, onPick }: { lat: number | null; lng: numbe
 }
 
 // ─── Main page ────────────────────────────────────────────────────────────────
-type Tab = 'info' | 'weekday' | 'shabbat' | 'shiurim' | 'announcements';
+type Tab = 'info' | 'weekday' | 'shabbat' | 'zmanim' | 'shiurim' | 'announcements';
 
 export default function SynagogueDetailPage() {
   const { id, cityId } = useParams<{ id: string; cityId: string }>();
@@ -467,6 +470,11 @@ export default function SynagogueDetailPage() {
   const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
   const [cityName, setCityName] = useState('');
   const [cityCoords, setCityCoords] = useState<{ lat?: number; lon?: number }>({});
+  const [cityTimezone, setCityTimezone] = useState('Asia/Jerusalem');
+  // The city's own method, shown as what "follow the city" means; the shul's own
+  // choice is `synZmanim` (null = follow the city).
+  const [cityZmanim, setCityZmanim] = useState<ZmanimSettings>(PRESET_RAV_OVADIA);
+  const [synZmanim, setSynZmanim] = useState<ZmanimSettings | null>(null);
   const [addingNeighborhood, setAddingNeighborhood] = useState(false);
   const [newNeighborhoodText, setNewNeighborhoodText] = useState('');
   // Areas — a regional council's settlements, or a plain city's own one (in
@@ -511,6 +519,8 @@ export default function SynagogueDetailPage() {
       if (hoods?.length) setNeighborhoods(hoods);
       setCityName((data?.name as string) ?? '');
       setCityCoords({ lat: data?.latitude as number | undefined, lon: data?.longitude as number | undefined });
+      setCityTimezone((data?.timezone as string) || 'Asia/Jerusalem');
+      setCityZmanim((data?.zmanimSettings as ZmanimSettings | undefined) ?? PRESET_RAV_OVADIA);
     });
     getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId))).then(snap => {
       setAreas(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Area).sort((a, b) => a.name.localeCompare(b.name, 'he')));
@@ -592,6 +602,7 @@ export default function SynagogueDetailPage() {
       setShabbatNotes(ss.notes ?? '');
       setShiurim(data.shiurim ?? []);
       setAnnouncements(data.synagogueEvents ?? []);
+      setSynZmanim(data.zmanimSettings ?? null);
       setLoading(false);
     });
   }, [id]);
@@ -614,6 +625,24 @@ export default function SynagogueDetailPage() {
         notes: info.notes,
         latitude: parseFloat(info.latitude) || null,
         longitude: parseFloat(info.longitude) || null,
+        updatedAt: serverTimestamp(),
+      });
+      flash();
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה בשמירה');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveZmanim = async () => {
+    if (!id) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, 'synagogues', id), {
+        // null = follow the city. JSON round-trip drops rules switched off
+        // (`undefined`), which Firestore refuses.
+        zmanimSettings: synZmanim ? JSON.parse(JSON.stringify(synZmanim)) : null,
         updatedAt: serverTimestamp(),
       });
       flash();
@@ -696,6 +725,7 @@ export default function SynagogueDetailPage() {
     { key: 'info',          label: 'פרטים' },
     { key: 'weekday',       label: 'תפילות שבועיות' },
     { key: 'shabbat',       label: 'שבת' },
+    { key: 'zmanim',        label: 'שיטת זמנים' },
     { key: 'shiurim',       label: `שיעורים (${shiurim.length})` },
     { key: 'announcements', label: `הודעות (${announcements.length})` },
   ];
@@ -976,6 +1006,51 @@ export default function SynagogueDetailPage() {
           </Modal>
         </div>
       )}
+
+      {/* ── Zmanim method ──────────────────────────────────────────────────────── */}
+      {tab === 'zmanim' && (() => {
+        const cityLabel = ZMANIM_PRESETS.find(p => p.key === cityZmanim.presetKey)?.label ?? 'שיטת העיר';
+        const options = [
+          { custom: false, title: 'לפי העיר', sub: cityLabel },
+          { custom: true,  title: 'שיטה משלנו', sub: 'בחירה והתאמה של שיטה לבית הכנסת' },
+        ];
+        return (
+          <div className="max-w-3xl flex flex-col gap-4">
+            <p className="text-sm text-slate-500 leading-relaxed">
+              השיטה שלפיה נמדדים זמני תפילה שמוגדרים לפי שקיעה, צאת הכוכבים וכד' ("חצי שעה לפני שקיעה").
+              משפיעה רק על בית הכנסת הזה — שעות קבועות והמסך האישי של כל תושב אינם משתנים.
+            </p>
+            <div className="bg-white border border-slate-200 rounded-2xl divide-y divide-slate-100">
+              {options.map(o => {
+                const on = !!synZmanim === o.custom;
+                return (
+                  <button key={o.title} type="button"
+                    onClick={() => setSynZmanim(o.custom ? (synZmanim ?? cityZmanim) : null)}
+                    className="w-full flex items-center gap-3 px-5 py-3.5 text-right">
+                    <span className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${on ? 'border-[#1B3A6B]' : 'border-slate-300'}`}>
+                      {on && <span className="h-2 w-2 rounded-full bg-[#1B3A6B]" />}
+                    </span>
+                    <span>
+                      <span className="block text-sm font-semibold text-slate-800">{o.title}</span>
+                      <span className="block text-xs text-slate-500">{o.sub}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {synZmanim && (
+              <ZmanimMethodEditor
+                value={synZmanim}
+                onChange={setSynZmanim}
+                point={cityCoords.lat != null && cityCoords.lon != null
+                  ? { latitude: cityCoords.lat, longitude: cityCoords.lon, timezone: cityTimezone }
+                  : null}
+              />
+            )}
+            <SaveBar onSave={saveZmanim} saving={saving} />
+          </div>
+        );
+      })()}
 
       {/* ── Weekday prayers ────────────────────────────────────────────────────── */}
       {tab === 'weekday' && (

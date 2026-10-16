@@ -18,6 +18,7 @@ import BusinessesPage from './pages/businessesPage';
 import EventsPage from './pages/EventsPage';
 import UsersPage from './pages/UsersPage';
 import CitySettingsPage from './pages/CitySettingsPage';
+import ZmanimPage from './pages/ZmanimPage';
 import EruvPage   from './pages/EruvPage';
 import ReportsPage             from './pages/ReportsPage';
 import GemachPage from './pages/GemachPage';
@@ -64,6 +65,7 @@ function AppRoutes() {
         <Route path="reports"       element={<ReportsPage />} />
         <Route path="users"         element={<UsersPage />} />
         <Route path="settings"      element={<CitySettingsPage />} />
+        <Route path="zmanim"        element={<ZmanimPage />} />
         <Route path="stats"         element={<StatsPage />} />
         <Route path="analytics"     element={<AnalyticsPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
