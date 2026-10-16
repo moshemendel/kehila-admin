@@ -5,8 +5,10 @@ import { Check } from 'lucide-react';
 import { db } from '../firebase';
 import type { City } from '../types';
 import ZmanimMethodEditor from '../components/ZmanimMethodEditor';
-import { PRESET_RAV_OVADIA } from '../utils/zmanim';
+import { PRESET_RAV_OVADIA, ZMANIM_CATALOG, relevantKeys, shownZmanim } from '../utils/zmanim';
 import type { ZmanimSettings } from '../utils/zmanim';
+
+const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every(k => b.has(k));
 
 // The zmanim the council publishes. Residents see this method until they pick
 // their own, and every synagogue's anchored prayer times ("30 min before
@@ -17,6 +19,7 @@ export default function ZmanimPage() {
   const [city, setCity] = useState<City | null>(null);
   const [value, setValue] = useState<ZmanimSettings>(PRESET_RAV_OVADIA);
   const [note, setNote] = useState('');
+  const [shown, setShown] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -28,8 +31,10 @@ export default function ZmanimPage() {
       if (snap.exists()) {
         const c = { id: snap.id, ...snap.data() } as City;
         setCity(c);
-        setValue(c.zmanimSettings ?? PRESET_RAV_OVADIA);
+        const method = c.zmanimSettings ?? PRESET_RAV_OVADIA;
+        setValue(method);
         setNote(c.zmanimNote ?? '');
+        setShown(shownZmanim(c.zmanimShown, method));
       }
       setLoading(false);
     });
@@ -44,6 +49,9 @@ export default function ZmanimPage() {
         // editor, which Firestore refuses; this drops the key instead.
         zmanimSettings: JSON.parse(JSON.stringify(value)),
         zmanimNote: note.trim() ? note.trim() : deleteField(),
+        // Exactly the times the method has is stored as "no list", so a city that
+        // never customised keeps following its method if that method changes.
+        zmanimShown: sameSet(shown, relevantKeys(value)) ? deleteField() : ZMANIM_CATALOG.filter(z => shown.has(z.key)).map(z => z.key),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -58,7 +66,7 @@ export default function ZmanimPage() {
   if (!city) return <div className="p-8 text-slate-400 text-sm">העיר לא נמצאה</div>;
 
   return (
-    <div className="p-8 max-w-3xl" dir="rtl">
+    <div className="p-8 max-w-6xl" dir="rtl">
       <h1 className="text-2xl font-bold text-slate-800 mb-1">זמני העיר</h1>
       <p className="text-slate-500 text-sm mb-6 leading-relaxed">
         שיטת החישוב שמפרסמת העיר. תושבים רואים אותה כברירת מחדל, וזמני התפילה המעוגנים בבתי הכנסת
@@ -69,6 +77,8 @@ export default function ZmanimPage() {
       <ZmanimMethodEditor
         value={value}
         onChange={setValue}
+        shown={shown}
+        onShownChange={setShown}
         point={{ latitude: city.latitude, longitude: city.longitude, timezone: city.timezone || 'Asia/Jerusalem' }}
       />
 

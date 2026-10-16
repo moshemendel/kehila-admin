@@ -10,7 +10,7 @@ const DAY_CHIPS: [DayKey, string][] = [
 
 const ANCHORS: { key: ZmanimAnchor; label: string }[] = [
   { key: 'netz', label: 'הנץ' }, { key: 'shkia', label: 'שקיעה' }, { key: 'tzeit', label: 'צאת הכוכבים' },
-  { key: 'chatzot', label: 'חצות' }, { key: 'plagHamincha', label: 'פלג המנחה' },
+  { key: 'chatzot', label: 'חצות' }, { key: 'plagHamincha', label: 'פלג המנחה (גר"א)' }, { key: 'plagHaminchaMga', label: 'פלג המנחה (מג"א)' }, { key: 'plagHaminchaBeforeTzet', label: 'פלג המנחה (אור החיים)' },
   { key: 'minchaGedola', label: 'מנחה גדולה' }, { key: 'minchaKetana', label: 'מנחה קטנה' },
 ];
 

@@ -33,7 +33,7 @@ const ALL_DAYS = [...WEEKDAYS, { num: 7, label: 'ש׳' }];
 
 const ANCHORS: { key: ZmanimAnchor; label: string }[] = [
   { key: 'netz', label: 'הנץ' }, { key: 'shkia', label: 'שקיעה' }, { key: 'tzeit', label: 'צאת הכוכבים' },
-  { key: 'chatzot', label: 'חצות' }, { key: 'plagHamincha', label: 'פלג המנחה' },
+  { key: 'chatzot', label: 'חצות' }, { key: 'plagHamincha', label: 'פלג המנחה (גר"א)' }, { key: 'plagHaminchaMga', label: 'פלג המנחה (מג"א)' }, { key: 'plagHaminchaBeforeTzet', label: 'פלג המנחה (אור החיים)' },
   { key: 'minchaGedola', label: 'מנחה גדולה' }, { key: 'minchaKetana', label: 'מנחה קטנה' },
 ];
 
@@ -1015,7 +1015,7 @@ export default function SynagogueDetailPage() {
           { custom: true,  title: 'שיטה משלנו', sub: 'בחירה והתאמה של שיטה לבית הכנסת' },
         ];
         return (
-          <div className="max-w-3xl flex flex-col gap-4">
+          <div className="max-w-6xl flex flex-col gap-4">
             <p className="text-sm text-slate-500 leading-relaxed">
               השיטה שלפיה נמדדים זמני תפילה שמוגדרים לפי שקיעה, צאת הכוכבים וכד' ("חצי שעה לפני שקיעה").
               משפיעה רק על בית הכנסת הזה — שעות קבועות והמסך האישי של כל תושב אינם משתנים.

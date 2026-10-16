@@ -98,6 +98,8 @@ export interface City {
   zmanimSettings?: ZmanimSettings;
   /** A line shown under the city's zmanim. Mirrors City.zmanimNote. */
   zmanimNote?: string;
+  /** Which zmanim residents see (keys of ZMANIM_CATALOG); absent = the usual set. */
+  zmanimShown?: string[];
 }
 
 /**
@@ -121,7 +123,7 @@ export type CityModules = Partial<Record<ModuleKey, ModuleState>>;
 
 export type NusachType = string[];
 
-export type ZmanimAnchor = 'netz' | 'shkia' | 'tzeit' | 'chatzot' | 'plagHamincha' | 'minchaGedola' | 'minchaKetana';
+export type ZmanimAnchor = 'netz' | 'shkia' | 'tzeit' | 'chatzot' | 'plagHamincha' | 'plagHaminchaMga' | 'plagHaminchaBeforeTzet' | 'minchaGedola' | 'minchaKetana';
 
 export interface PrayerTimeSlot {
   time: string;           // "HH:MM" for fixed; empty string for anchor-relative
