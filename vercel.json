@@ -1,10 +1,10 @@
 {
   "redirects": [
-    { "source": "/", "destination": "/app/admin", "permanent": false }
+    { "source": "/", "destination": "/app-admin", "permanent": false }
   ],
   "rewrites": [
-    { "source": "/app/admin/assets/:path*", "destination": "/assets/:path*" },
-    { "source": "/app/admin/:file(favicon.svg|icons.svg)", "destination": "/:file" },
+    { "source": "/app-admin/assets/:path*", "destination": "/assets/:path*" },
+    { "source": "/app-admin/:file(favicon.svg|icons.svg)", "destination": "/:file" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

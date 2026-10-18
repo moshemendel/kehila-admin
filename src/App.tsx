@@ -79,7 +79,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <ShabbatLockGate>
-      {/* '/app/admin' in production, '' in dev — see vite.config.ts */}
+      {/* '/app-admin' in production, '' in dev — see vite.config.ts */}
       <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
         <AuthProvider>
           <CityProvider>
