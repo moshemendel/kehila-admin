@@ -1,3 +1,5 @@
+import { useRoleCatalogue } from '../utils/roleCatalogue';
+import type { UserRole } from '../types';
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { collection, getDocs, query, where } from 'firebase/firestore';
@@ -26,6 +28,9 @@ const safe = (p: Promise<any>) =>
   p.catch(() => ({ size: 0, docs: [], exists: () => false, data: () => ({}) }));
 
 export default function CityDashboard() {
+  // Labels for roles this page's own table does not list (synagogue_manager,
+  // mikveh_manager, …) come from the role catalogue rather than showing the raw key.
+  const cat = useRoleCatalogue();
   const { cityId } = useParams<{ cityId: string }>();
   const { setMarkers } = useMapSync();
 
@@ -116,7 +121,7 @@ export default function CityDashboard() {
                   const max = roleBreakdown[0]?.count ?? 1;
                   return (
                     <div key={role} className="flex items-center gap-3">
-                      <span className="text-xs text-slate-600 w-28 text-right flex-shrink-0">{ROLE_LABELS[role] ?? role}</span>
+                      <span className="text-xs text-slate-600 w-28 text-right flex-shrink-0">{ROLE_LABELS[role] ?? cat.labelOf(role as UserRole)}</span>
                       <div className="flex-1 bg-slate-100 rounded-full h-2">
                         <div className="bg-[#1B3A6B] h-2 rounded-full" style={{ width: `${(count / max) * 100}%` }} />
                       </div>

@@ -33,8 +33,13 @@ export default function Layout({ children }: { children: ReactNode }) {
       <aside className="w-56 bg-[#1B3A6B] flex flex-col shadow-xl flex-shrink-0">
         {/* Logo */}
         <div className="px-5 py-5 border-b border-white/10">
-          <div className="text-white font-bold text-lg">קהילה</div>
-          <div className="text-blue-300 text-xs mt-0.5">ניהול</div>
+          <div className="flex items-center gap-3">
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="h-10 w-10 rounded-lg" />
+            <div>
+              <div className="text-white font-bold text-lg leading-tight">קהילה</div>
+              <div className="text-blue-300 text-xs mt-0.5">ניהול</div>
+            </div>
+          </div>
         </div>
 
         {/* Nav */}

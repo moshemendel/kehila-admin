@@ -57,6 +57,7 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-[#1B3A6B] to-[#0f2347] flex items-center justify-center p-4" dir="rtl">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-8">
         <div className="text-center mb-8">
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="קהילה" className="h-20 w-20 rounded-2xl mx-auto mb-3 shadow-md" />
           <div className="text-3xl font-black text-[#1B3A6B] mb-1">קהילה</div>
           <div className="text-slate-400 text-sm">ממשק ניהול</div>
         </div>

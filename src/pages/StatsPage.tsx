@@ -6,6 +6,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 import type { City } from '../types';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -67,7 +68,12 @@ function HebTooltip({ active, payload, label }: any) {
   );
 }
 
-function RolePie({ data }: { data: { name: string; value: number }[] }) {
+function RolePie({ data: raw }: { data: { name: string; value: number }[] }) {
+  // The names arrive as this page's own Hebrew labels, or as the bare role key
+  // when its table has none (synagogue_manager, mikveh_manager, …) — those are
+  // looked up in the role catalogue so they read in Hebrew too.
+  const cat = useRoleCatalogue();
+  const data = raw.map(r => (/^[a-z_]+$/.test(r.name) ? { ...r, name: cat.labelOf(r.name) } : r));
   return (
     <div className="flex gap-4 items-center">
       <PieChart width={170} height={170}>
