@@ -1,4 +1,5 @@
 import type { ZmanimSettings } from './utils/zmanim';
+import type { PlotShape } from './utils/graveLocator';
 
 export type GemachCategory =
   | 'clothing' | 'baby' | 'medical' | 'food' | 'books'
@@ -443,6 +444,15 @@ export interface Cemetery {
   /** Where each plot (חלקה) is, by its name in the burial register. Mirrors
    *  Cemetery.plots in the app; pinned in CemeteryPlotsModal. */
   plots?: Record<string, { latitude: number; longitude: number }>;
+  /**
+   * Plots drawn as outlines with their rows, keyed like `plots` ("גוש/חלקה" where
+   * the cemetery has blocks, else the plot's name). Lets a search result navigate
+   * to the row and grave, not just the plot — see utils/graveLocator.ts. Drawn in
+   * the console; a plot with an entry here wins over its `plots` pin.
+   */
+  plotShapes?: Record<string, PlotShape>;
+  /** Block (גוש) outlines, by block name — drawn in the console to show where each begins. */
+  blocks?: Record<string, { latitude: number; longitude: number }[]>;
   /** Plot names from the register, written by the weekly deceased sync. */
   registerPlots?: string[];
   updatedAt?: any;

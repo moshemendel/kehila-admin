@@ -4,13 +4,12 @@ import {
   deleteDoc, updateDoc, addDoc, serverTimestamp, arrayUnion,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import type { Cemetery, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import { Plus, Trash2, Flower2, MapPin } from 'lucide-react';
-import CemeteryPlotsModal from '../components/CemeteryPlotsModal';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
 // The same click-to-place map the synagogue page uses.
 import { MapPicker } from './SynagogueDetailPage';
@@ -42,7 +41,7 @@ export default function CemeteriesPage() {
   const [editId,     setEditId]     = useState<string | null>(null);
   const [saving,     setSaving]     = useState(false);
   const [deleteId,   setDeleteId]   = useState<string | null>(null);
-  const [plotsFor,   setPlotsFor]   = useState<Cemetery | null>(null);
+  const navigate = useNavigate();
   // The city's neighbourhoods (one list shared with synagogues and the rest) and
   // the map the location is picked on.
   const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
@@ -199,7 +198,7 @@ export default function CemeteriesPage() {
           actions={isAdmin ? (c) => (
             <div className="flex items-center gap-1">
               <button
-                onClick={(e) => { e.stopPropagation(); setPlotsFor(c); }}
+                onClick={(e) => { e.stopPropagation(); navigate(`/cities/${cityId}/cemeteries/${c.id}/plots`); }}
                 title="מיקום חלקות"
                 className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-xs font-semibold"
               >
@@ -446,7 +445,6 @@ export default function CemeteriesPage() {
           </button>
         </div>
       </Modal>
-      <CemeteryPlotsModal cemetery={plotsFor} onClose={() => setPlotsFor(null)} onSaved={load} />
     </div>
   );
 }

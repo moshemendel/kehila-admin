@@ -19,6 +19,7 @@ import EventsPage from './pages/EventsPage';
 import UsersPage from './pages/UsersPage';
 import CitySettingsPage from './pages/CitySettingsPage';
 import ZmanimPage from './pages/ZmanimPage';
+import CemeteryPlotsPage from './pages/CemeteryPlotsPage';
 import EruvPage   from './pages/EruvPage';
 import ReportsPage             from './pages/ReportsPage';
 import GemachPage from './pages/GemachPage';
@@ -62,6 +63,7 @@ function AppRoutes() {
         <Route path="eruv"          element={<EruvPage />} />
         <Route path="gemach"        element={<GemachPage />} />
         <Route path="cemeteries"    element={<CemeteriesPage />} />
+        <Route path="cemeteries/:id/plots" element={<CemeteryPlotsPage />} />
         <Route path="reports"       element={<ReportsPage />} />
         <Route path="users"         element={<UsersPage />} />
         <Route path="settings"      element={<CitySettingsPage />} />
