@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
-  collection, getDocs, query, where, doc,
-  deleteDoc, updateDoc, addDoc, serverTimestamp,
+  collection, getDocs, getDoc, query, where, doc,
+  deleteDoc, updateDoc, addDoc, serverTimestamp, arrayUnion,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
@@ -12,9 +12,12 @@ import Modal from '../components/Modal';
 import { Plus, Trash2, Flower2, MapPin } from 'lucide-react';
 import CemeteryPlotsModal from '../components/CemeteryPlotsModal';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
+// The same click-to-place map the synagogue page uses.
+import { MapPicker } from './SynagogueDetailPage';
+import AddressGeocodeField from '../components/AddressGeocodeField';
 
 const EMPTY_FORM = {
-  name: '', areaIds: [] as string[],
+  name: '', areaIds: [] as string[], neighborhood: '', address: '',
   contactName: '', contactPhone: '', directionsUrl: '',
   latitude: undefined as number | undefined,
   longitude: undefined as number | undefined,
@@ -40,15 +43,28 @@ export default function CemeteriesPage() {
   const [saving,     setSaving]     = useState(false);
   const [deleteId,   setDeleteId]   = useState<string | null>(null);
   const [plotsFor,   setPlotsFor]   = useState<Cemetery | null>(null);
+  // The city's neighbourhoods (one list shared with synagogues and the rest) and
+  // the map the location is picked on.
+  const [neighborhoods, setNeighborhoods] = useState<string[]>([]);
+  // Where the city is, so an address search resolves in the right town.
+  const [cityInfo, setCityInfo] = useState<{ name: string; lat?: number; lon?: number }>({ name: '' });
+  const [addingHood, setAddingHood]       = useState(false);
+  const [newHood, setNewHood]             = useState('');
+  const [mapOpen, setMapOpen]             = useState(false);
+  const [pendingPick, setPendingPick]     = useState<{ lat: number; lng: number } | null>(null);
 
   const load = async () => {
     if (!cityId) return;
     setLoading(true);
     try {
-      const [cSnap, aSnap] = await Promise.all([
+      const [cSnap, aSnap, citySnap] = await Promise.all([
         getDocs(query(collection(db, 'cemeteries'), where('cityId', '==', cityId))),
         getDocs(query(collection(db, 'areas'), where('cityId', '==', cityId))),
+        getDoc(doc(db, 'cities', cityId)),
       ]);
+      const cd = citySnap.data();
+      setCityInfo({ name: (cd?.name as string) ?? '', lat: cd?.latitude as number | undefined, lon: cd?.longitude as number | undefined });
+      setNeighborhoods(((citySnap.data()?.neighborhoods as string[] | undefined) ?? []).slice().sort((a, b) => a.localeCompare(b, 'he')));
       const sorted = cSnap.docs
         .map(d => ({ id: d.id, ...d.data() }) as Cemetery)
         .sort((a, b) => a.name.localeCompare(b.name, 'he'));
@@ -69,7 +85,7 @@ export default function CemeteriesPage() {
   const openAdd = () => { setForm(EMPTY_FORM); setEditId(null); setModalOpen(true); };
   const openEdit = (c: Cemetery) => {
     setForm({
-      name: c.name, areaIds: c.areaIds ?? [],
+      name: c.name, areaIds: c.areaIds ?? [], neighborhood: c.neighborhood ?? '', address: c.address ?? '',
       contactName: c.contactName ?? '', contactPhone: c.contactPhone ?? '',
       directionsUrl: c.directionsUrl ?? '',
       latitude: c.latitude, longitude: c.longitude,
@@ -86,6 +102,8 @@ export default function CemeteriesPage() {
       const payload = {
         name: form.name.trim(),
         areaIds: form.areaIds,
+        neighborhood: form.neighborhood || null,
+        address: form.address.trim() || null,
         contactName: form.contactName.trim() || null,
         contactPhone: form.contactPhone.trim() || null,
         directionsUrl: form.directionsUrl.trim() || null,
@@ -117,6 +135,16 @@ export default function CemeteriesPage() {
     }
   };
 
+  const handleAddNeighborhood = async () => {
+    const text = newHood.trim();
+    if (!text || !cityId || neighborhoods.includes(text)) return;
+    await updateDoc(doc(db, 'cities', cityId), { neighborhoods: arrayUnion(text) });
+    setNeighborhoods(prev => [...prev, text].sort((a, b) => a.localeCompare(b, 'he')));
+    setForm(p => ({ ...p, neighborhood: text }));
+    setNewHood('');
+    setAddingHood(false);
+  };
+
   const toggleArea = (id: string) => {
     setForm(p => ({
       ...p,
@@ -128,6 +156,7 @@ export default function CemeteriesPage() {
     { key: 'name', header: 'שם', sortable: true },
     { key: 'areaIds', header: 'יישוב/ים', render: c =>
       (c.areaIds ?? []).length ? (c.areaIds ?? []).map(areaName).join(' + ') : '—' },
+    { key: 'neighborhood', header: 'שכונה', sortable: true, render: c => c.neighborhood ?? '—' },
     { key: 'contactName', header: 'איש קשר', render: c => c.contactName ?? '—' },
     { key: 'contactPhone', header: 'טלפון', render: c => c.contactPhone ?? '—' },
     { key: 'directionsUrl', header: 'ניווט', render: c => c.directionsUrl ? (
@@ -199,6 +228,43 @@ export default function CemeteriesPage() {
             />
           </div>
 
+          {/* Neighbourhood — the city's shared list, with a way to add one */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">שכונה</label>
+            {addingHood ? (
+              <div className="flex gap-1.5 items-center">
+                <input
+                  autoFocus
+                  value={newHood}
+                  onChange={e => setNewHood(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAddNeighborhood(); if (e.key === 'Escape') setAddingHood(false); }}
+                  placeholder="שם שכונה חדשה"
+                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm text-right"
+                />
+                <button type="button" onClick={handleAddNeighborhood}
+                  className="px-3 py-2 bg-slate-600 text-white rounded-lg text-xs font-semibold">הוסף</button>
+                <button type="button" onClick={() => { setAddingHood(false); setNewHood(''); }}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-xs text-slate-500">ביטול</button>
+              </div>
+            ) : (
+              <div className="flex gap-1.5 items-center">
+                <select
+                  value={form.neighborhood}
+                  onChange={e => setForm(p => ({ ...p, neighborhood: e.target.value }))}
+                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm text-right bg-white"
+                >
+                  <option value="">— בחר שכונה —</option>
+                  {form.neighborhood && !neighborhoods.includes(form.neighborhood) && (
+                    <option value={form.neighborhood}>{form.neighborhood}</option>
+                  )}
+                  {neighborhoods.map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <button type="button" onClick={() => setAddingHood(true)}
+                  className="px-2.5 py-2 border border-slate-200 rounded-lg text-xs text-blue-600 hover:bg-blue-50 whitespace-nowrap">+ חדשה</button>
+              </div>
+            )}
+          </div>
+
           {/* Areas — hidden for a plain single-area city, the same "golden rule"
               the app itself follows: nothing to choose between. */}
           {areas.length > 1 && (
@@ -267,6 +333,34 @@ export default function CemeteriesPage() {
             />
           </div>
 
+          {/* Address — "אתר" resolves it to coordinates, as on the synagogue page */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1">כתובת</label>
+            <AddressGeocodeField
+              value={form.address}
+              onChange={v => setForm(p => ({ ...p, address: v }))}
+              onPick={r => setForm(p => ({ ...p, latitude: r.latitude, longitude: r.longitude }))}
+              cityName={cityInfo.name}
+              cityLat={cityInfo.lat}
+              cityLon={cityInfo.lon}
+              cbsCode={(areas.find(a => a.id === form.areaIds[0]) ?? areas.find(a => a.isDefault))?.cbsCode}
+              inputClassName="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-right"
+            />
+          </div>
+
+          <div className="flex items-center justify-between -mb-1">
+            <label className="block text-sm font-semibold text-slate-700">מיקום</label>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingPick(form.latitude != null && form.longitude != null ? { lat: form.latitude, lng: form.longitude } : null);
+                setMapOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              <MapPin size={13} /> בחר במפה
+            </button>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1">קו רוחב</label>
@@ -308,6 +402,37 @@ export default function CemeteriesPage() {
               {saving ? 'שומר...' : 'שמור'}
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Map picker — click to place the cemetery */}
+      <Modal open={mapOpen} title="בחר מיקום על המפה" onClose={() => setMapOpen(false)} size="xl">
+        <div style={{ height: 480 }}>
+          <MapPicker
+            lat={pendingPick?.lat ?? null}
+            lng={pendingPick?.lng ?? null}
+            onPick={(lat, lng) => setPendingPick({ lat, lng })}
+          />
+        </div>
+        {pendingPick && (
+          <p className="text-xs text-slate-400 mt-2 text-center">
+            {pendingPick.lat.toFixed(6)}, {pendingPick.lng.toFixed(6)}
+          </p>
+        )}
+        <div className="flex gap-3 pt-4">
+          <button
+            onClick={() => {
+              if (pendingPick) {
+                setForm(p => ({ ...p, latitude: Number(pendingPick.lat.toFixed(6)), longitude: Number(pendingPick.lng.toFixed(6)) }));
+              }
+              setMapOpen(false);
+            }}
+            disabled={!pendingPick}
+            className="flex-1 bg-slate-600 text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-slate-700 disabled:opacity-40"
+          >
+            אישור
+          </button>
+          <button onClick={() => setMapOpen(false)} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600">ביטול</button>
         </div>
       </Modal>
 

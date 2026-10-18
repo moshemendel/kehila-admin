@@ -427,6 +427,10 @@ export interface Cemetery {
    *  two adjacent kibbutzim). A single-area city's one cemetery still carries
    *  this, its one area's id. */
   areaIds: string[];
+  /** One of the city's neighbourhoods (City.neighborhoods). Mirrors Cemetery.neighborhood in the app. */
+  neighborhood?: string;
+  /** Street address, for locating the cemetery. Mirrors Cemetery.address in the app. */
+  address?: string;
   name: string;
   contactName?: string;
   contactPhone?: string;
