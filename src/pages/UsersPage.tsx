@@ -294,6 +294,7 @@ export default function UsersPage() {
   const [businesses, setBusinesses] = useState<business[]>([]);
   const [mikvaot, setMikvaot]       = useState<Mikveh[]>([]);
   const [loading, setLoading]       = useState(true);
+  const { cityId: routeCityId } = useParams<{ cityId?: string }>();
   const [tab, setTab]               = useState<TabKey>('managers');
   const [roleFilter, setRoleFilter] = useState<string[]>([]); // empty = everyone
   const [addOpen, setAddOpen]       = useState(false);
@@ -354,8 +355,14 @@ export default function UsersPage() {
 
   // Partition users
   const devUsers      = allUsers.filter(u => u.role === 'dev' || u.role === 'super_admin');
+  // The city an account belongs to is the one it is appointed in (homeCityId);
+  // cityId is only the city it last browsed in the app, and moves whenever it
+  // looks at another.
+  const belongsTo = (u: AppUser) => u.homeCityId ?? u.cityId;
   const visibleUsers  = isSuperAdmin
-    ? allUsers.filter(u => u.role !== 'dev' && u.role !== 'super_admin')
+    // A super admin loads everyone, but on a city's page sees that city's people
+    // — the sidebar is the city, and another council's accounts do not belong in it.
+    ? allUsers.filter(u => u.role !== 'dev' && u.role !== 'super_admin' && (!routeCityId || belongsTo(u) === routeCityId))
     // Global-scope roles (super_admin, dev) are not about this city, so a
     // city_admin never sees them. Asked of the catalogue rather than listed,
     // so a future cross-city role is hidden the day it is added.
@@ -394,7 +401,7 @@ export default function UsersPage() {
         </div>
       ),
     },
-    ...(showCity ? [{ key: 'cityId', header: 'עיר', render: (r: any) => cityName(r.cityId) || '—' } as Column<any>] : []),
+    ...(showCity ? [{ key: 'cityId', header: 'עיר', render: (r: any) => cityName(r.homeCityId ?? r.cityId) || '—' } as Column<any>] : []),
   ];
 
   const withId = (arr: AppUser[]) => arr.map(u => ({ ...u, id: u.uid }));
@@ -474,7 +481,7 @@ export default function UsersPage() {
           <p className="text-slate-400 text-sm mt-0.5">
             {appointer
               ? `בחר משתמש קיים כדי למנות אותו ל${appointsTo}`
-              : `${visibleUsers.length} משתמשים ${isSuperAdmin ? 'במערכת' : 'בעיר'}`}
+              : `${visibleUsers.length} משתמשים ${isSuperAdmin && !routeCityId ? 'במערכת' : 'בעיר'}`}
           </p>
         </div>
         {canCreate && (
