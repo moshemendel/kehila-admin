@@ -234,7 +234,7 @@ export default function ZmanimMethodEditor({ value, onChange, point, shown, onSh
               <Block title="הדלקת נרות">
                 <NumberField value={value.candleLightingMin ?? 20} suffix="דק' לפני השקיעה (מנהג העיר)"
                   onCommit={v => edit({ candleLightingMin: v })} />
-                <NumberField value={value.candleLightingAltMin ?? 40} suffix="דק' לפני השקיעה (לנוהגים להקדים)"
+                <NumberField value={value.candleLightingAltMin ?? 0} suffix="דק' לפני השקיעה — לנוהגים להקדים (0 = אין מנהג כזה בעיר)"
                   onCommit={v => edit({ candleLightingAltMin: v })} />
               </Block>
             </div>

@@ -46,7 +46,7 @@ export interface ZmanimSettings {
   mgaDay?: { alot: ZmanimRule; tzet: ZmanimRule };
   /** Minutes before sunset the Shabbat candles are lit. Absent = 20. */
   candleLightingMin?: number;
-  /** The second, stricter minhag shown beside it (Jerusalem's 40). Absent = 40. */
+  /** Jerusalem's earlier minhag (40), shown beside the city's own. Absent or 0 = the city has no such minhag. */
   candleLightingAltMin?: number;
   /** Motzei Shabbat. Absent = the same rule as tzet hakochavim. */
   shabbatExit?: ZmanimRule;
@@ -133,7 +133,6 @@ export const PRESET_CHAZON_SHAMAYIM: ZmanimSettings = {
   minchaGedola:  { method: 'fixed', value: 30 },
   mgaDay:        { alot: { method: 'degrees', value: 19.75 }, tzet: { method: 'degrees', value: 19.75 } },
   candleLightingMin: 30,
-  candleLightingAltMin: 40,
   shabbatExit:   { method: 'degrees', value: 8.5 },
   rabbenuTam:    { method: 'fixed', value: 72 },
 };
@@ -149,7 +148,6 @@ export const PRESET_TZIKUNI: ZmanimSettings = {
   minchaGedola:  { method: 'fixed', value: 30 },
   mgaDay:        { alot: { method: 'degrees', value: 16.1 }, tzet: { method: 'degrees', value: 16.1 } },
   candleLightingMin: 30,
-  candleLightingAltMin: 40,
   shabbatExit:   { method: 'degrees', value: 8.5 },
   rabbenuTam:    { method: 'fixed', value: 72 },
 };
@@ -165,7 +163,6 @@ export const PRESET_MELAMED: ZmanimSettings = {
   minchaGedola:  { method: 'longer', value: 30 },
   mgaDay:        { alot: { method: 'fixed', value: 72 }, tzet: { method: 'fixed', value: 72 } },
   candleLightingMin: 30,
-  candleLightingAltMin: 40,
   shabbatExit:   { method: 'degrees', value: 8.5 },
   rabbenuTam:    { method: 'fixed', value: 72 },
 };
@@ -269,7 +266,7 @@ export interface ZmanimResult {
   shaahZmanitGra:   number; // minutes
   shaahZmanitMga:   number; // minutes, per Python formula
   candleLighting:    number; // settings.candleLightingMin before sunset
-  candleLightingAlt: number; // settings.candleLightingAltMin before sunset
+  candleLightingAlt: number; // settings.candleLightingAltMin before sunset; -1 when the city has no such minhag
   tzetShabbat:       number; // motzei Shabbat: settings.shabbatExit, else tzetHakochavim
 }
 
@@ -416,7 +413,7 @@ export function calcZmanim(
   const mgDef = settings.minchaGedola ?? { method: 'proportional' as RuleMethod, value: 30 };
   const minchaGedola = applyRule(cal, chatzot, mgDef, false, shaahGraMs);
   const candleMs = (settings.candleLightingMin ?? 20) * 60_000;
-  const candleAltMs = (settings.candleLightingAltMin ?? 40) * 60_000;
+  const candleAltMin = settings.candleLightingAltMin ?? 0;
 
   return {
     alot:             m(alot),
@@ -441,7 +438,7 @@ export function calcZmanim(
     shaahZmanitGra:   shaahGraMs / 60_000,
     shaahZmanitMga:   shaahMgaMs / 60_000,
     candleLighting:    m(offset(shkia, -candleMs)),
-    candleLightingAlt: m(offset(shkia, -candleAltMs)),
+    candleLightingAlt: candleAltMin > 0 ? m(offset(shkia, -candleAltMin * 60_000)) : -1,
     tzetShabbat:       m(tzetShab),
   };
 }
@@ -525,7 +522,7 @@ export function describeSettings(s: ZmanimSettings): { label: string; text: stri
     { label: 'צאת הכוכבים',      text: `${ruleText(s.tzetMethod, s.tzetMinutes)}${s.tzetMethod === 'degrees' ? '' : ' אחרי השקיעה'}` },
     { label: 'צאת השבת',         text: s.shabbatExit ? `${ruleText(s.shabbatExit.method, s.shabbatExit.value)}${s.shabbatExit.method === 'degrees' ? '' : ' אחרי השקיעה'}` : 'כמו צאת הכוכבים' },
     { label: 'רבנו תם',          text: `${ruleText(rt.method, rt.value)}${rt.method === 'degrees' ? '' : ' אחרי השקיעה'}` },
-    { label: 'הדלקת נרות',       text: `${s.candleLightingMin ?? 20} דק' לפני השקיעה (לנוהגים להקדים: ${s.candleLightingAltMin ?? 40})` },
+    { label: 'הדלקת נרות',       text: `${s.candleLightingMin ?? 20} דק' לפני השקיעה${s.candleLightingAltMin ? ` (לנוהגים להקדים: ${s.candleLightingAltMin})` : ''}` },
   ];
 }
 
