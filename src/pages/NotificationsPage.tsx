@@ -6,6 +6,7 @@ import {
 import { db } from '../firebase';
 import { sendPush } from '../utils/push';
 import { useAuth } from '../contexts/AuthContext';
+import { useRoleCatalogue } from '../utils/roleCatalogue';
 import type { City } from '../types';
 import { Bell, Send, Users, AlertCircle, CheckCircle2 } from 'lucide-react';
 
@@ -82,6 +83,19 @@ function formatTs(ts: Timestamp): string {
 
 export default function NotificationsPage() {
   const { appUser } = useAuth();
+  const cat = useRoleCatalogue();
+  // The audiences: registered users and guests, then every role in the catalogue
+  // (so a role added there — or a city-wide one like synagogue_manager — is
+  // targetable without touching this page). The built-in list is the fallback
+  // while the catalogue loads.
+  const roleOptions = cat.roles.length
+    ? [
+        ROLE_OPTIONS[0], ROLE_OPTIONS[1],
+        ...cat.roles
+          .filter(r => r.key !== 'user' && r.key !== 'super_admin' && r.key !== 'dev')
+          .map(r => ({ value: r.key, label: r.label })),
+      ]
+    : ROLE_OPTIONS;
   const { cityId: routeCityId } = useParams<{ cityId?: string }>();
   // A "dev" scoped to one city behaves like city_admin — locked to that city.
   const canPickCity = appUser?.role === 'super_admin' || (appUser?.role === 'dev' && !appUser?.cityId);
@@ -332,7 +346,7 @@ export default function NotificationsPage() {
               </button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {ROLE_OPTIONS.map(r => {
+              {roleOptions.map(r => {
                 const active = roles !== null && roles.includes(r.value);
                 return (
                   <button

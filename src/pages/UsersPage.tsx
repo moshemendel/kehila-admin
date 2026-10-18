@@ -294,6 +294,7 @@ export default function UsersPage() {
   const [mikvaot, setMikvaot]       = useState<Mikveh[]>([]);
   const [loading, setLoading]       = useState(true);
   const [tab, setTab]               = useState<TabKey>('managers');
+  const [roleFilter, setRoleFilter] = useState<string | null>(null);
   const [addOpen, setAddOpen]       = useState(false);
   const [editUser, setEditUser]     = useState<AppUser | null>(null);
 
@@ -397,6 +398,20 @@ export default function UsersPage() {
 
   const withId = (arr: AppUser[]) => arr.map(u => ({ ...u, id: u.uid }));
 
+  // Filtering by role matches ANY role an account holds, not just its primary
+  // one — someone who is both a synagogue manager and a mikveh manager shows
+  // under each.
+  const heldOf = (u: AppUser): string[] => (u.roles?.length ? u.roles : [u.role]);
+  const roleChips = (() => {
+    const counts = new Map<string, number>();
+    for (const u of managerUsers) for (const r of heldOf(u)) if (r !== 'user') counts.set(r, (counts.get(r) ?? 0) + 1);
+    // Catalogue order is priority order, highest authority first.
+    const known = cat.roles.map(r => r.key).filter(k => counts.has(k));
+    const unknown = [...counts.keys()].filter(k => !known.includes(k));
+    return [...known, ...unknown].map(k => ({ key: k, label: cat.labelOf(k), count: counts.get(k)! }));
+  })();
+  const filteredManagers = roleFilter ? managerUsers.filter(u => heldOf(u).includes(roleFilter)) : managerUsers;
+
   const TABS: { key: TabKey; label: string; icon: typeof Users; count: number; hidden?: boolean }[] = [
     { key: 'managers', label: 'מנהלים ורכזים', icon: UserCog,  count: managerUsers.length },
     { key: 'regular',  label: 'משתמשים',        icon: Users,    count: regularUsers.length },
@@ -477,7 +492,26 @@ export default function UsersPage() {
       {loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
         <>
           {tab === 'managers' && (
-            <DataTable data={withId(managerUsers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={rowAction} />
+            <>
+              {roleChips.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2 mb-4">
+                  <span className="text-xs font-semibold text-slate-500">תפקיד:</span>
+                  {[{ key: null as string | null, label: 'הכל', count: managerUsers.length }, ...roleChips].map(c => {
+                    const on = roleFilter === c.key;
+                    return (
+                      <button key={c.key ?? 'all'} onClick={() => setRoleFilter(c.key)}
+                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${on
+                          ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
+                          : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'}`}>
+                        {c.label}
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${on ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>{c.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <DataTable data={withId(filteredManagers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={rowAction} />
+            </>
           )}
           {tab === 'regular' && (
             <DataTable data={withId(regularUsers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={rowAction} />

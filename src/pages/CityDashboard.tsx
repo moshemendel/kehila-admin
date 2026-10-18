@@ -51,10 +51,16 @@ export default function CityDashboard() {
       safe(getDocs(query(collection(db, 'pushTokens'),  where('cityId', '==', cityId)))),
     ]).then(([s, m, r, e, u, pt]) => {
       const users = u.docs.map((d: any) => d.data() as AppUser);
-      const managers = users.filter((u: AppUser) => u.role !== 'user' && u.role !== 'dev' && u.role !== 'super_admin');
+      // An account can hold several roles (a gabbai for every shul who also runs
+      // the mikvaot), and `role` is only the highest of them — counting that alone
+      // hid the rest. Every staff role an account holds is counted, so one person
+      // can appear on more than one row while "managers" still counts people.
+      const heldOf = (u: AppUser): string[] => (u.roles?.length ? u.roles : [u.role]);
+      const isStaffRole = (r: string) => r !== 'user' && r !== 'dev' && r !== 'super_admin';
+      const managers = users.filter((u: AppUser) => heldOf(u).some(isStaffRole));
 
       const roleCounts: Record<string, number> = {};
-      managers.forEach((u: AppUser) => { roleCounts[u.role] = (roleCounts[u.role] ?? 0) + 1; });
+      managers.forEach((u: AppUser) => heldOf(u).filter(isStaffRole).forEach(r => { roleCounts[r] = (roleCounts[r] ?? 0) + 1; }));
       setRoleBreakdown(Object.entries(roleCounts).map(([role, count]) => ({ role, count })).sort((a, b) => b.count - a.count));
 
       setStats({
