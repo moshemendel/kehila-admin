@@ -10,6 +10,7 @@ import RolesEditor from '../components/RolesEditor';
 import { Plus, Pencil, Shield, Code2, Users, UserCog, UserPlus } from 'lucide-react';
 import { createUserWithRole } from '../utils/createUser';
 import { useRoleCatalogue, chipClass } from '../utils/roleCatalogue';
+import { ROLE_GROUPS } from '../utils/roleGroups';
 import {
   type Catalogue, type RoleDraft, type CityItems, emptyDraft, draftFromUser, missingAssignments, roleUpdates,
 } from '../utils/roleLogic';
@@ -294,7 +295,7 @@ export default function UsersPage() {
   const [mikvaot, setMikvaot]       = useState<Mikveh[]>([]);
   const [loading, setLoading]       = useState(true);
   const [tab, setTab]               = useState<TabKey>('managers');
-  const [roleFilter, setRoleFilter] = useState<string | null>(null);
+  const [roleFilter, setRoleFilter] = useState<string[]>([]); // empty = everyone
   const [addOpen, setAddOpen]       = useState(false);
   const [editUser, setEditUser]     = useState<AppUser | null>(null);
 
@@ -410,7 +411,17 @@ export default function UsersPage() {
     const unknown = [...counts.keys()].filter(k => !known.includes(k));
     return [...known, ...unknown].map(k => ({ key: k, label: cat.labelOf(k), count: counts.get(k)! }));
   })();
-  const filteredManagers = roleFilter ? managerUsers.filter(u => heldOf(u).includes(roleFilter)) : managerUsers;
+  const filteredManagers = roleFilter.length
+    ? managerUsers.filter(u => heldOf(u).some(r => roleFilter.includes(r)))
+    : managerUsers;
+  const toggleRoles = (keys: string[]) => setRoleFilter(prev => {
+    const all = keys.every(k => prev.includes(k));
+    return all ? prev.filter(r => !keys.includes(r)) : [...new Set([...prev, ...keys])];
+  });
+  // A group shows only when the list has at least one of its roles.
+  const groupChips = ROLE_GROUPS
+    .filter(g => g.roles.some(r => roleChips.some(c => c.key === r)))
+    .map(g => ({ ...g, count: managerUsers.filter(u => heldOf(u).some(r => g.roles.includes(r))).length }));
 
   const TABS: { key: TabKey; label: string; icon: typeof Users; count: number; hidden?: boolean }[] = [
     { key: 'managers', label: 'מנהלים ורכזים', icon: UserCog,  count: managerUsers.length },
@@ -496,10 +507,14 @@ export default function UsersPage() {
               {roleChips.length > 1 && (
                 <div className="flex flex-wrap items-center gap-2 mb-4">
                   <span className="text-xs font-semibold text-slate-500">תפקיד:</span>
-                  {[{ key: null as string | null, label: 'הכל', count: managerUsers.length }, ...roleChips].map(c => {
-                    const on = roleFilter === c.key;
+                  {[
+                    { id: 'all', label: 'הכל', count: managerUsers.length, on: roleFilter.length === 0, toggle: () => setRoleFilter([]) },
+                    ...groupChips.map(g => ({ id: `g:${g.label}`, label: g.label, count: g.count, on: g.roles.every(r => roleFilter.includes(r)), toggle: () => toggleRoles(g.roles) })),
+                    ...roleChips.map(c => ({ id: c.key, label: c.label, count: c.count, on: roleFilter.includes(c.key), toggle: () => toggleRoles([c.key]) })),
+                  ].map(c => {
+                    const on = c.on;
                     return (
-                      <button key={c.key ?? 'all'} onClick={() => setRoleFilter(c.key)}
+                      <button key={c.id} onClick={c.toggle}
                         className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${on
                           ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
                           : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'}`}>

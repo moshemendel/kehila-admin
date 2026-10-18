@@ -7,6 +7,7 @@ import { db } from '../firebase';
 import { sendPush } from '../utils/push';
 import { useAuth } from '../contexts/AuthContext';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
+import { ROLE_GROUPS } from '../utils/roleGroups';
 import type { City } from '../types';
 import { Bell, Send, Users, AlertCircle, CheckCircle2 } from 'lucide-react';
 
@@ -214,6 +215,17 @@ export default function NotificationsPage() {
     });
   }
 
+  // Picks (or drops) a whole group at once — "all the gabbaim" is the per-shul
+  // gabbai and the account over every shul.
+  function toggleGroup(keys: string[]) {
+    setRoles(prev => {
+      const cur = prev ?? [];
+      const all = keys.every(k => cur.includes(k));
+      const next = all ? cur.filter(r => !keys.includes(r)) : [...new Set([...cur, ...keys])];
+      return next.length === 0 ? null : next;
+    });
+  }
+
   // ── Send ──────────────────────────────────────────────────────────────────────
 
   async function handleSend() {
@@ -344,6 +356,26 @@ export default function NotificationsPage() {
               >
                 כולם
               </button>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {ROLE_GROUPS.map(g => {
+                const active = roles !== null && g.roles.every(k => roles.includes(k));
+                const count = filterByChannel(tokenRecords, channel).filter(r => r.roles.some(x => g.roles.includes(x))).length;
+                return (
+                  <button
+                    key={g.label}
+                    onClick={() => toggleGroup(g.roles)}
+                    className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${
+                      active
+                        ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
+                        : 'text-[#1B3A6B] border-[#1B3A6B]/30 bg-[#1B3A6B]/5 hover:border-[#1B3A6B]/60'
+                    }`}
+                  >
+                    {g.label}
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${active ? 'bg-white/20 text-white' : 'bg-white text-slate-500'}`}>{count}</span>
+                  </button>
+                );
+              })}
             </div>
             <div className="flex flex-wrap gap-2">
               {roleOptions.map(r => {
