@@ -1,12 +1,15 @@
 /**
- * "All the gabbaim" means the per-shul gabbai AND the account that holds every
- * shul (synagogue_manager) — both run synagogues and both are who a message about
- * prayer times is for. Likewise the mikveh attendants and the account over all
- * mikvaot. Used to pick both at once in the users filter and the notification
- * audience; each member is still an ordinary role chip on its own.
+ * The hands-on roles — the ones an account is appointed to by a domain manager
+ * (a gabbai of one shul, a mikveh attendant, a mashgiach) — are listed apart from
+ * the managers over them, and named in the plural for a list of people. A manager
+ * such as synagogue_manager is a different role even though it covers every
+ * shul: it is never folded into "the gabbaim".
  */
-export const ROLE_GROUPS: { label: string; roles: string[] }[] = [
-  { label: 'כל הגבאים',    roles: ['gabbai', 'synagogue_manager'] },
-  { label: 'כל הבלנים',    roles: ['mikveh_attendant', 'mikveh_manager'] },
-  { label: 'כל המשגיחים',  roles: ['mashgiach', 'kosher_manager'] },
-];
+export const FIELD_ROLE_PLURAL: Record<string, string> = {
+  gabbai: 'גבאים',
+  mikveh_attendant: 'בלנים',
+  mashgiach: 'משגיחים',
+};
+
+export const isFieldRole = (key: string) => key in FIELD_ROLE_PLURAL;
+export const fieldRoleLabel = (key: string, fallback: string) => FIELD_ROLE_PLURAL[key] ?? fallback;

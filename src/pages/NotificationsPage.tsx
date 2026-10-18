@@ -7,7 +7,7 @@ import { db } from '../firebase';
 import { sendPush } from '../utils/push';
 import { useAuth } from '../contexts/AuthContext';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
-import { ROLE_GROUPS } from '../utils/roleGroups';
+import { fieldRoleLabel, isFieldRole } from '../utils/roleGroups';
 import type { City } from '../types';
 import { Bell, Send, Users, AlertCircle, CheckCircle2 } from 'lucide-react';
 
@@ -92,8 +92,14 @@ export default function NotificationsPage() {
   const roleOptions = cat.roles.length
     ? [
         ROLE_OPTIONS[0], ROLE_OPTIONS[1],
+        // Hands-on roles first (gabbaim, attendants, mashgichim — in the plural), then
+        // the managers, so a message to "the gabbaim" never includes a manager unless
+        // that manager's own chip is picked too.
         ...cat.roles
-          .filter(r => r.key !== 'user' && r.key !== 'super_admin' && r.key !== 'dev')
+          .filter(r => isFieldRole(r.key))
+          .map(r => ({ value: r.key, label: fieldRoleLabel(r.key, r.label) })),
+        ...cat.roles
+          .filter(r => !isFieldRole(r.key) && r.key !== 'user' && r.key !== 'super_admin' && r.key !== 'dev')
           .map(r => ({ value: r.key, label: r.label })),
       ]
     : ROLE_OPTIONS;
@@ -212,17 +218,6 @@ export default function NotificationsPage() {
         return next.length === 0 ? null : next; // back to "all" if none selected
       }
       return [...prev, role];
-    });
-  }
-
-  // Picks (or drops) a whole group at once — "all the gabbaim" is the per-shul
-  // gabbai and the account over every shul.
-  function toggleGroup(keys: string[]) {
-    setRoles(prev => {
-      const cur = prev ?? [];
-      const all = keys.every(k => cur.includes(k));
-      const next = all ? cur.filter(r => !keys.includes(r)) : [...new Set([...cur, ...keys])];
-      return next.length === 0 ? null : next;
     });
   }
 
@@ -356,26 +351,6 @@ export default function NotificationsPage() {
               >
                 כולם
               </button>
-            </div>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {ROLE_GROUPS.map(g => {
-                const active = roles !== null && g.roles.every(k => roles.includes(k));
-                const count = filterByChannel(tokenRecords, channel).filter(r => r.roles.some(x => g.roles.includes(x))).length;
-                return (
-                  <button
-                    key={g.label}
-                    onClick={() => toggleGroup(g.roles)}
-                    className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors ${
-                      active
-                        ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
-                        : 'text-[#1B3A6B] border-[#1B3A6B]/30 bg-[#1B3A6B]/5 hover:border-[#1B3A6B]/60'
-                    }`}
-                  >
-                    {g.label}
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${active ? 'bg-white/20 text-white' : 'bg-white text-slate-500'}`}>{count}</span>
-                  </button>
-                );
-              })}
             </div>
             <div className="flex flex-wrap gap-2">
               {roleOptions.map(r => {

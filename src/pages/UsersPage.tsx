@@ -10,7 +10,7 @@ import RolesEditor from '../components/RolesEditor';
 import { Plus, Pencil, Shield, Code2, Users, UserCog, UserPlus } from 'lucide-react';
 import { createUserWithRole } from '../utils/createUser';
 import { useRoleCatalogue, chipClass } from '../utils/roleCatalogue';
-import { ROLE_GROUPS } from '../utils/roleGroups';
+import { fieldRoleLabel, isFieldRole } from '../utils/roleGroups';
 import {
   type Catalogue, type RoleDraft, type CityItems, emptyDraft, draftFromUser, missingAssignments, roleUpdates,
 } from '../utils/roleLogic';
@@ -414,14 +414,12 @@ export default function UsersPage() {
   const filteredManagers = roleFilter.length
     ? managerUsers.filter(u => heldOf(u).some(r => roleFilter.includes(r)))
     : managerUsers;
-  const toggleRoles = (keys: string[]) => setRoleFilter(prev => {
-    const all = keys.every(k => prev.includes(k));
-    return all ? prev.filter(r => !keys.includes(r)) : [...new Set([...prev, ...keys])];
-  });
-  // A group shows only when the list has at least one of its roles.
-  const groupChips = ROLE_GROUPS
-    .filter(g => g.roles.some(r => roleChips.some(c => c.key === r)))
-    .map(g => ({ ...g, count: managerUsers.filter(u => heldOf(u).some(r => g.roles.includes(r))).length }));
+  const toggleRole = (key: string) =>
+    setRoleFilter(prev => (prev.includes(key) ? prev.filter(r => r !== key) : [...prev, key]));
+  // Hands-on roles (gabbaim, attendants, mashgichim) and the managers over them
+  // are two separate rows, so "the gabbaim" never quietly includes a manager.
+  const fieldChips = roleChips.filter(c => isFieldRole(c.key)).map(c => ({ ...c, label: fieldRoleLabel(c.key, c.label) }));
+  const managerChips = roleChips.filter(c => !isFieldRole(c.key));
 
   const TABS: { key: TabKey; label: string; icon: typeof Users; count: number; hidden?: boolean }[] = [
     { key: 'managers', label: 'מנהלים ורכזים', icon: UserCog,  count: managerUsers.length },
@@ -505,24 +503,27 @@ export default function UsersPage() {
           {tab === 'managers' && (
             <>
               {roleChips.length > 1 && (
-                <div className="flex flex-wrap items-center gap-2 mb-4">
-                  <span className="text-xs font-semibold text-slate-500">תפקיד:</span>
-                  {[
-                    { id: 'all', label: 'הכל', count: managerUsers.length, on: roleFilter.length === 0, toggle: () => setRoleFilter([]) },
-                    ...groupChips.map(g => ({ id: `g:${g.label}`, label: g.label, count: g.count, on: g.roles.every(r => roleFilter.includes(r)), toggle: () => toggleRoles(g.roles) })),
-                    ...roleChips.map(c => ({ id: c.key, label: c.label, count: c.count, on: roleFilter.includes(c.key), toggle: () => toggleRoles([c.key]) })),
-                  ].map(c => {
-                    const on = c.on;
-                    return (
-                      <button key={c.id} onClick={c.toggle}
-                        className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${on
-                          ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
-                          : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'}`}>
-                        {c.label}
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${on ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>{c.count}</span>
-                      </button>
-                    );
-                  })}
+                <div className="flex flex-col gap-2 mb-4">
+                  {([
+                    { title: 'תפקידים', chips: [{ key: '__all', label: 'הכל', count: managerUsers.length }, ...fieldChips] },
+                    { title: 'מנהלים',  chips: managerChips },
+                  ]).filter(r => r.chips.length > 0).map(row => (
+                    <div key={row.title} className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-500 w-14">{row.title}:</span>
+                      {row.chips.map(c => {
+                        const on = c.key === '__all' ? roleFilter.length === 0 : roleFilter.includes(c.key);
+                        return (
+                          <button key={c.key} onClick={() => (c.key === '__all' ? setRoleFilter([]) : toggleRole(c.key))}
+                            className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors ${on
+                              ? 'bg-[#1B3A6B] text-white border-[#1B3A6B]'
+                              : 'text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'}`}>
+                            {c.label}
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${on ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>{c.count}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               )}
               <DataTable data={withId(filteredManagers)} columns={columns(isSuperAdmin)} searchKeys={['displayName', 'email']} actions={rowAction} />
