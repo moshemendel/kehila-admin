@@ -68,6 +68,8 @@ function slotLabel(s: PrayerTimeSlot) {
   return s.time || '—';
 }
 
+const SEASON_LABEL = { summer: 'שעון קיץ', winter: 'שעון חורף' } as const;
+
 function daysLabel(days: number[] | undefined, all: typeof ALL_DAYS) {
   if (!days || days.length === all.length) return 'כל הימים';
   return days.map(d => all.find(x => x.num === d)?.label ?? d).join(' ');
@@ -91,9 +93,11 @@ function SlotModal({
   const [proportional, setProportional] = useState(false);
   const [days, setDays] = useState<number[]>([1, 2, 3, 4, 5, 6]);
   const [notes, setNotes] = useState('');
+  const [season, setSeason] = useState<PrayerTimeSlot['season']>(undefined);
 
   useEffect(() => {
     if (!open) return;
+    setSeason(slot?.season);
     if (slot) {
       setMode(slot.anchor ? 'anchor' : 'fixed');
       setTime(slot.time || '');
@@ -116,6 +120,7 @@ function SlotModal({
       time: mode === 'fixed' ? time : '',
       ...(mode === 'anchor' ? { anchor, offsetMin: offset, proportional: proportional || undefined } : {}),
       ...(!hideWeekdays ? { days } : {}),
+      ...(season ? { season } : {}),
       ...(notes ? { notes } : {}),
     };
     onSave(s);
@@ -196,6 +201,20 @@ function SlotModal({
           </div>
         )}
 
+        {/* Clock season — set once instead of editing at every clock change.
+            Fixed and anchored slots alike. */}
+        <div>
+          <label className={lbl}>באיזו עונה</label>
+          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+            {([undefined, 'summer', 'winter'] as const).map(s => (
+              <button key={s ?? 'all'} type="button" onClick={() => setSeason(s)}
+                className={`flex-1 py-2 text-sm font-medium transition-colors ${season === s ? 'bg-[#1B3A6B] text-white' : 'text-slate-500 hover:bg-slate-50'}`}>
+                {s ? SEASON_LABEL[s] : 'כל השנה'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div>
           <label className={lbl}>הערה (אופציונלי)</label>
           <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="למשל: קבלת שבת בקיץ" className={inp} />
@@ -248,6 +267,9 @@ function PrayerSection({
               <span className="text-sm font-semibold">{slotLabel(s)}</span>
               {!hideWeekdays && s.days && s.days.length < 6 && (
                 <span className="text-xs opacity-60 mr-2">{daysLabel(s.days, WEEKDAYS)}</span>
+              )}
+              {s.season && (
+                <span className="text-xs mr-2 px-1.5 py-0.5 rounded-full border border-current opacity-70">{SEASON_LABEL[s.season]}</span>
               )}
               {s.notes && <span className="text-xs opacity-60 mr-2">· {s.notes}</span>}
             </div>

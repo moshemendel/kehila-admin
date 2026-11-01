@@ -135,6 +135,9 @@ export interface PrayerTimeSlot {
   /** Specific dates "YYYY-MM-DD"; when non-empty the slot happens only on those
    *  and `days` is ignored. See kehila-app/src/types/index.ts for rationale. */
   dates?: string[];        // 1=Sun … 6=Fri (7=Shabbat only in shabbat schedule)
+  /** Which half of the year the slot runs in (Israel's clock change); absent =
+   *  all year. Fixed and anchored slots alike. See kehila-app/src/types/index.ts. */
+  season?: 'summer' | 'winter';
   notes?: string | null;
 }
 
