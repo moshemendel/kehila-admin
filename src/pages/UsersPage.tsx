@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { collection, getDocs, query, where, doc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useParams } from 'react-router-dom';
@@ -7,7 +7,7 @@ import type { AppUser, UserRole, City, Synagogue, business, Mikveh } from '../ty
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import RolesEditor from '../components/RolesEditor';
-import { Plus, Pencil, Shield, Code2, Users, UserCog, UserPlus } from 'lucide-react';
+import { Plus, Pencil, Trash2, Shield, Code2, Users, UserCog, UserPlus } from 'lucide-react';
 import { createUserWithRole } from '../utils/createUser';
 import { useRoleCatalogue, chipClass } from '../utils/roleCatalogue';
 import { fieldRoleLabel, isFieldRole } from '../utils/roleGroups';
@@ -368,6 +368,18 @@ export default function UsersPage() {
     setAllUsers(prev => prev.map(u => u.uid === user.uid ? { ...u, ...merged } as AppUser : u));
   };
 
+  // Removes the profile document only. The Firebase Auth account is left, so the
+  // person could sign in again and start over as a plain user.
+  const handleDelete = async (user: AppUser) => {
+    if (!window.confirm(`למחוק את ${user.displayName || user.email} מהמסד? הפעולה אינה הפיכה.`)) return;
+    try {
+      await deleteDoc(doc(db, 'users', user.uid));
+      setAllUsers(prev => prev.filter(u => u.uid !== user.uid));
+    } catch (e: any) {
+      alert(e?.message ?? 'שגיאה במחיקה');
+    }
+  };
+
   // Partition users
   // Dev team = the global-scope roles plus accounts flagged as test accounts.
   const isDevTeam = (u: AppUser) => u.role === 'dev' || u.role === 'super_admin' || !!u.isTestAccount;
@@ -465,10 +477,16 @@ export default function UsersPage() {
   const rowAction = (row: AppUser) => {
     if (isSelf(row)) return null;
     if (isSuperAdmin) return (
-      <button onClick={() => setEditUser(row)} title="עריכת תפקידים"
-        className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
-        <Pencil size={14} />
-      </button>
+      <div className="flex items-center gap-1">
+        <button onClick={() => setEditUser(row)} title="עריכת תפקידים"
+          className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-colors">
+          <Pencil size={14} />
+        </button>
+        <button onClick={() => handleDelete(row)} title="מחיקת משתמש"
+          className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors">
+          <Trash2 size={14} />
+        </button>
+      </div>
     );
     if (actorRoles.includes('city_admin')) return holdsAuthority(row) ? null : (
       <button onClick={() => setEditUser(row)} title="עריכת תפקידים"
