@@ -60,6 +60,10 @@ export interface AppUser {
   homeCityId?: string;
   role: UserRole;
   roles?: UserRole[];
+  // A fictitious account kept for development and testing. Shown only to
+  // super_admin/dev (under the dev-team tab); every city's own admins see
+  // a list without it.
+  isTestAccount?: boolean;
   // The per-object assignments for the tier-3 roles, one array each. Admin-
   // written (the rules forbid self-edits and creates cannot seed them), and
   // membership is the grant. A mashgiach's businesses are a separate array from

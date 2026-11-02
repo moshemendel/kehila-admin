@@ -179,7 +179,7 @@ function AddUserModal({ open, onClose, onCreated, currentCityId, cities, all }: 
 function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }: {
   open: boolean;
   user: AppUser | null;
-  onSave: (user: AppUser, draft: RoleDraft, cityId: string) => Promise<void>;
+  onSave: (user: AppUser, draft: RoleDraft, cityId: string, isTestAccount: boolean) => Promise<void>;
   onClose: () => void;
   cities: City[];
   all: { synagogues: Synagogue[]; businesses: business[]; mikvaot: Mikveh[] };
@@ -188,13 +188,14 @@ function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }
 }) {
   const [draft, setDraft]   = useState<RoleDraft>(emptyDraft());
   const [cityId, setCityId] = useState('');
+  const [isTest, setIsTest] = useState(false);
   const [saving, setSaving] = useState(false);
   const actorRoles = useActorRoles();
   const isSuperAdmin = actorRoles.includes('super_admin') || actorRoles.includes('dev');
   const cat = useRoleCatalogue();
 
   useEffect(() => {
-    if (user) { setDraft(draftFromUser(user)); setCityId(user.homeCityId ?? user.cityId ?? ''); }
+    if (user) { setDraft(draftFromUser(user)); setCityId(user.homeCityId ?? user.cityId ?? ''); setIsTest(!!user.isTestAccount); }
   }, [user]);
 
   const blocked = missingMessage(cat, draft, actorRoles);
@@ -203,7 +204,7 @@ function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }
     if (!user || blocked) return;
     setSaving(true);
     try {
-      await onSave(user, draft, cityId);
+      await onSave(user, draft, cityId, isTest);
       onClose();
     } catch (e: any) {
       alert(e?.message ?? 'שגיאה בשמירה');
@@ -233,6 +234,16 @@ function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }
                 {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
+          )}
+
+          {isSuperAdmin && (
+            <label className="mb-5 flex items-start gap-2.5 p-3 rounded-xl border border-slate-200 cursor-pointer">
+              <input type="checkbox" checked={isTest} onChange={e => setIsTest(e.target.checked)} className="mt-0.5" />
+              <span className="text-sm text-slate-700">
+                חשבון בדיקה (צוות פיתוח)
+                <span className="block text-xs text-slate-400">מוסתר ממנהלי ערים ומופיע רק בלשונית צוות פיתוח</span>
+              </span>
+            </label>
           )}
 
           <div className="mb-5">
@@ -334,7 +345,7 @@ export default function UsersPage() {
 
   useEffect(() => { load(); }, [appUser?.homeCityId, isSuperAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleRoleSave = async (user: AppUser, draft: RoleDraft, pickedCityId: string) => {
+  const handleRoleSave = async (user: AppUser, draft: RoleDraft, pickedCityId: string, isTestAccount: boolean) => {
     // One write for a city_admin or super_admin; one write PER CHILD ROLE for a
     // domain manager, because the delegation rule accepts exactly one role per
     // write. See roleUpdates().
@@ -348,13 +359,19 @@ export default function UsersPage() {
         : (user.homeCityId ?? user.cityId);
       updates[0] = { ...updates[0], homeCityId };
     }
+    // Only a super_admin sees the checkbox; for anyone else the flag is left alone.
+    if (isSuperAdmin && isTestAccount !== !!user.isTestAccount) {
+      updates[0] = { ...updates[0], isTestAccount };
+    }
     for (const payload of updates) await updateDoc(doc(db, 'users', user.uid), payload);
     const merged = updates.reduce((acc, p) => ({ ...acc, ...p }), {} as Record<string, unknown>);
     setAllUsers(prev => prev.map(u => u.uid === user.uid ? { ...u, ...merged } as AppUser : u));
   };
 
   // Partition users
-  const devUsers      = allUsers.filter(u => u.role === 'dev' || u.role === 'super_admin');
+  // Dev team = the global-scope roles plus accounts flagged as test accounts.
+  const isDevTeam = (u: AppUser) => u.role === 'dev' || u.role === 'super_admin' || !!u.isTestAccount;
+  const devUsers      = allUsers.filter(isDevTeam);
   // The city an account belongs to is the one it is appointed in (homeCityId);
   // cityId is only the city it last browsed in the app, and moves whenever it
   // looks at another.
@@ -362,11 +379,11 @@ export default function UsersPage() {
   const visibleUsers  = isSuperAdmin
     // A super admin loads everyone, but on a city's page sees that city's people
     // — the sidebar is the city, and another council's accounts do not belong in it.
-    ? allUsers.filter(u => u.role !== 'dev' && u.role !== 'super_admin' && (!routeCityId || belongsTo(u) === routeCityId))
+    ? allUsers.filter(u => !isDevTeam(u) && (!routeCityId || belongsTo(u) === routeCityId))
     // Global-scope roles (super_admin, dev) are not about this city, so a
     // city_admin never sees them. Asked of the catalogue rather than listed,
     // so a future cross-city role is hidden the day it is added.
-    : allUsers.filter(u => cat.byKey(u.role)?.scope !== 'global');
+    : allUsers.filter(u => cat.byKey(u.role)?.scope !== 'global' && !u.isTestAccount);
 
   const managerUsersAll = visibleUsers.filter(u => u.role !== 'user');
   const regularUsersAll = visibleUsers.filter(u => u.role === 'user');
