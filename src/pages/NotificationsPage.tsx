@@ -45,16 +45,25 @@ const ROLE_OPTIONS = [
 
 interface TokenRecord { token: string; role: string; roles: string[]; }
 
-async function fetchTokenRecords(cityId: string | 'all'): Promise<TokenRecord[]> {
+// Devices signed in to a dev-team account (super_admin, dev, or one flagged
+// isTestAccount) are not part of a city's audience — the server leaves them out of
+// a broadcast, so the count here leaves them out too. A city-scoped admin can only
+// read their own city's users, so the flag lookup is bounded to it.
+async function fetchTokenRecords(cityId: string | 'all', unscoped: boolean): Promise<TokenRecord[]> {
   const col = collection(db, 'pushTokens');
-  const snap = cityId === 'all'
-    ? await getDocs(col)
-    : await getDocs(query(col, where('cityId', '==', cityId)));
+  const testFlagged = query(collection(db, 'users'), where('isTestAccount', '==', true));
+  const [snap, testSnap] = await Promise.all([
+    cityId === 'all' ? getDocs(col) : getDocs(query(col, where('cityId', '==', cityId))),
+    getDocs(unscoped ? testFlagged : query(testFlagged, where('homeCityId', '==', cityId))),
+  ]);
+  const testUids = new Set(testSnap.docs.map(d => d.id));
 
-  return snap.docs.map(d => {
+  return snap.docs.flatMap(d => {
     const data       = d.data();
     const singleRole = data.role as string;
-    return { token: data.token as string, role: singleRole, roles: (data.roles as string[] | undefined) ?? [singleRole] };
+    const roles      = (data.roles as string[] | undefined) ?? [singleRole];
+    if (roles.some(r => r === 'super_admin' || r === 'dev') || testUids.has(data.uid as string)) return [];
+    return [{ token: data.token as string, role: singleRole, roles }];
   });
 }
 
@@ -192,11 +201,11 @@ export default function NotificationsPage() {
   useEffect(() => {
     if (!cityId) { setTokenRecords([]); return; }
     setCountLoading(true);
-    fetchTokenRecords(cityId).then(records => {
+    fetchTokenRecords(cityId, canPickCity).then(records => {
       setTokenRecords(records);
       setCountLoading(false);
     }).catch(() => setCountLoading(false));
-  }, [cityId]);
+  }, [cityId, canPickCity]);
 
   useEffect(() => {
     if (!cityId) { setRecipientCount(null); setRoleCounts({}); return; }
