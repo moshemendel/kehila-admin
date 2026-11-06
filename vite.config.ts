@@ -2,12 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// Production is served at kehilink.com/app-admin (kehilink proxies that path
-// to this console's Firebase Hosting site, kehila-admin-386ab — see
-// firebase.json), so built asset URLs carry that prefix — and
-// `vite preview` serves the build the same way. The dev server stays at root.
+// Production serves the console at kehila-app.com/console (Firebase Hosting
+// site kehila-admin-386ab); `/` is the landing page, built from site/ and laid
+// around the console by scripts/stage-site.mjs. So built asset URLs carry the
+// /console/ prefix and the build lands in dist/console — `vite preview` serves
+// it the same way. The dev server stays at root.
 export default defineConfig(({ command, isPreview }) => ({
-  base: command === 'build' || isPreview ? '/app-admin/' : '/',
+  base: command === 'build' || isPreview ? '/console/' : '/',
+  build: { outDir: 'dist/console' },
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
