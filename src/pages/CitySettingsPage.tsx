@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { City, CityModules } from '../types';
 import CityModulesEditor from '../components/CityModulesEditor';
@@ -22,6 +22,7 @@ export default function CitySettingsPage() {
   const [maAngle, setMaAngle]     = useState<number | null>(null);
   const [modules, setModules]     = useState<CityModules>({});
   const [hidden, setHidden]       = useState(false);
+  const [rcLogoUrl, setRcLogoUrl] = useState('');
 
   useEffect(() => {
     if (!cityId) return;
@@ -36,6 +37,7 @@ export default function CitySettingsPage() {
         });
         setModules(c.modules ?? {});
         setHidden(!!c.hidden);
+        setRcLogoUrl(c.religiousCouncilLogoUrl ?? '');
         if (c.latitude && c.longitude) {
           setMaLoading(true);
           calcMountainAngle(c.latitude, c.longitude, c.elevation ?? 0)
@@ -63,6 +65,8 @@ export default function CitySettingsPage() {
         // behind.
         modules,
         hidden,
+        // An emptied field removes the logo rather than saving an empty string.
+        religiousCouncilLogoUrl: rcLogoUrl.trim() || deleteField(),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -82,6 +86,16 @@ export default function CitySettingsPage() {
 
       <div className="bg-white border border-slate-200 rounded-2xl p-6">
         <CityForm form={form} setForm={setForm} maLoading={maLoading} maAngle={maAngle} />
+
+        <div className="pt-5 mt-5 border-t border-slate-100">
+          <h3 className="text-sm font-semibold text-slate-800 mb-1">סמל המועצה הדתית</h3>
+          <p className="text-xs text-slate-500 mb-3">
+            קישור (https) לתמונה, רצוי PNG שקוף וריבועי. מוצג במסך הבית של האפליקציה ובכותרות הרשימות
+            (בתי כנסת, מקוואות, כשרות...). שדה ריק — לא מוצג סמל.
+          </p>
+          <input value={rcLogoUrl} onChange={e => setRcLogoUrl(e.target.value)} dir="ltr" placeholder="https://..."
+            className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm" />
+        </div>
 
         <div className="pt-5 mt-5 border-t border-slate-100">
           <CityModulesEditor value={modules} onChange={setModules} />

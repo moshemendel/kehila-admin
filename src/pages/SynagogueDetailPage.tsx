@@ -290,6 +290,8 @@ function PrayerSection({
 }
 
 // ─── Shiur modal ──────────────────────────────────────────────────────────────
+// Mirrors SHIUR_TOPICS in the app (src/utils/shiurim.ts) — keep the two lists equal.
+const SHIUR_TOPICS = ['גמרא', 'הלכה', 'פרשת שבוע', 'מוסר ומחשבה', 'תנ"ך', 'חסידות', 'אמונה', 'אחר'];
 function ShiurModal({ open, shiur, onSave, onClose }: {
   open: boolean; shiur: Shiur | null;
   onSave: (s: Shiur) => void; onClose: () => void;
@@ -300,9 +302,13 @@ function ShiurModal({ open, shiur, onSave, onClose }: {
   const [daily, setDaily] = useState(false);
   const [days, setDays] = useState<number[]>([]);
   const [desc, setDesc] = useState('');
+  const [topic, setTopic] = useState('');
+  const [audience, setAudience] = useState<'men' | 'women' | 'all'>('all');
 
   useEffect(() => {
     if (!open) return;
+    setTopic(shiur?.topic ?? '');
+    setAudience(shiur?.audience ?? 'all');
     if (shiur) {
       setTitle(shiur.title); setRabbi(shiur.rabbi); setTime(shiur.time);
       setDaily(shiur.days === 'daily');
@@ -317,7 +323,7 @@ function ShiurModal({ open, shiur, onSave, onClose }: {
     setDays(p => p.includes(d) ? p.filter(x => x !== d) : [...p, d].sort((a, b) => a - b));
 
   const handleSave = () => {
-    onSave({ id: shiur?.id ?? nanoid(), title, rabbi, time, days: daily ? 'daily' : days, description: desc || undefined });
+    onSave({ id: shiur?.id ?? nanoid(), title, rabbi, time, days: daily ? 'daily' : days, description: desc || undefined, topic: topic || undefined, audience });
     onClose();
   };
 
@@ -353,6 +359,23 @@ function ShiurModal({ open, shiur, onSave, onClose }: {
               ))}
             </div>
           )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={lbl}>נושא</label>
+            <select value={topic} onChange={e => setTopic(e.target.value)} className={inp}>
+              <option value="">(לפי הכותרת)</option>
+              {SHIUR_TOPICS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={lbl}>קהל יעד</label>
+            <select value={audience} onChange={e => setAudience(e.target.value as 'men' | 'women' | 'all')} className={inp}>
+              <option value="all">כולם</option>
+              <option value="men">גברים</option>
+              <option value="women">נשים</option>
+            </select>
+          </div>
         </div>
         <div>
           <label className={lbl}>תיאור (אופציונלי)</label>

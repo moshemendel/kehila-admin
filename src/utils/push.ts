@@ -26,6 +26,8 @@ interface SendOptions {
    * at. Omit (or leave undefined) to send city-wide, as before.
    */
   areaIds?: string[] | null;
+  /** 'women' skips accounts that said גבר; 'men' skips those that said אישה. */
+  audience?: 'men' | 'women' | null;
 }
 
 /**
@@ -34,12 +36,13 @@ interface SendOptions {
  * Stale tokens (DeviceNotRegistered) are removed from Firestore automatically.
  */
 export async function sendPush(opts: SendOptions): Promise<number> {
-  const { cityId, cityName, title, body, channel, roles = null, sentBy, auto = false, data, areaIds = null } = opts;
+  const { cityId, cityName, title, body, channel, roles = null, sentBy, auto = false, data, areaIds = null, audience = null } = opts;
 
   // Sent by the sendPush Cloud Function: the browser cannot POST to exp.host
   // (no CORS headers), and the function does the pushTokens lookup too.
   const res = await callSendPush({
     cityId, title, body, roles, areaIds,
+    audience: audience ?? undefined,
     data: data ?? undefined,
     excludeGuests: channel === 'general',
     channelId: 'default', // Android requires explicit channel

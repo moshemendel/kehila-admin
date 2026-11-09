@@ -17,7 +17,13 @@ const CATEGORY_LABELS: Record<EventCategory, string> = {
 const EMPTY_FORM = {
   title: '', description: '', category: 'shiur' as EventCategory,
   startDate: '', location: '', isAlert: false, areaId: '',
+  audience: 'all' as 'men' | 'women' | 'all',
 };
+
+const AUDIENCE_LABELS = { all: 'כולם', men: 'גברים', women: 'נשים' } as const;
+
+/** What sendPush wants: 'all' / absent means no gender filter. */
+const pushAudience = (a?: 'men' | 'women' | 'all') => (a === 'men' || a === 'women' ? a : null);
 
 interface PendingEvent extends PendingCommunityEvent { id: string; }
 
@@ -118,6 +124,7 @@ export default function EventsPage() {
           sentBy: appUser?.uid ?? '',
           auto: true,
           data: { screen: 'Events' },
+          audience: pushAudience(form.audience),
         }).catch(() => {});
       }
       closeCreateModal();
@@ -141,6 +148,9 @@ export default function EventsPage() {
         cityId, title: p.title, description: p.description, category: p.category,
         startDate: p.startDate, endDate: p.endDate, location: p.location,
         organizer: p.organizer, isAlert: p.isAlert,
+        // Firestore rejects undefined, so an old pending event with no audience
+        // is stored as 'all'.
+        audience: p.audience ?? 'all',
         createdBy: p.submittedBy, createdAt: serverTimestamp(),
         synagogueId: p.synagogueId,
       });
@@ -154,6 +164,7 @@ export default function EventsPage() {
           sentBy: appUser?.uid ?? '',
           auto: true,
           data: { screen: 'Events' },
+          audience: pushAudience(p.audience),
         }).catch(() => {});
       }
       load();
@@ -298,6 +309,11 @@ export default function EventsPage() {
               </select>
             </Field>
           )}
+          <Field label="למי מיועד">
+            <select value={form.audience} onChange={f('audience')} className={inp}>
+              {Object.entries(AUDIENCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </Field>
           <Field label="תיאור" colSpan>
             <textarea value={form.description} onChange={f('description')} rows={3} className={`${inp} resize-none`} />
           </Field>

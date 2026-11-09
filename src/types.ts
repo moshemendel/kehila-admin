@@ -103,6 +103,9 @@ export interface City {
   zmanimSettings?: ZmanimSettings;
   /** A line shown under the city's zmanim. Mirrors City.zmanimNote. */
   zmanimNote?: string;
+  /** Religious council emblem (https image) — the app's home screen and the
+   *  headers of its section lists. */
+  religiousCouncilLogoUrl?: string;
   /** Which zmanim residents see (keys of ZMANIM_CATALOG); absent = the usual set. */
   zmanimShown?: string[];
 }
@@ -170,6 +173,10 @@ export interface Shiur {
   days: number[] | 'daily';
   time: string;
   description?: string;
+  /** One of the app's SHIUR_TOPICS; absent = the app infers it from the title. */
+  topic?: string;
+  /** Absent = not stated, open to everyone. */
+  audience?: 'men' | 'women' | 'all';
 }
 
 export type SynagogueEventCategory = 'shiur' | 'community' | 'youth' | 'charity' | 'holiday' | 'announcement' | 'alert';
@@ -344,6 +351,8 @@ export interface CommunityEvent {
   organizer?: string;
   synagogueId?: string;
   isAlert: boolean;
+  /** Who it is for; absent reads as 'all'. Mirrors kehila-app's CommunityEvent. */
+  audience?: 'men' | 'women' | 'all';
   createdBy: string;
   createdAt: Date;
 }
@@ -365,6 +374,7 @@ export interface PendingCommunityEvent {
   location?: string;
   organizer?: string;
   isAlert: boolean;
+  audience?: 'men' | 'women' | 'all';
 }
 
 // ── Content reports — users flagging wrong info on a public listing ──────────

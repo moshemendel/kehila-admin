@@ -128,6 +128,7 @@ export default function NotificationsPage() {
   const [countLoading, setCountLoading]     = useState(false);
   const [roleCounts, setRoleCounts]         = useState<Record<string, number>>({});
   const [targetScreen, setTargetScreen] = useState<string>('');
+  const [audience, setAudience]       = useState<'' | 'men' | 'women'>('');
   const [sending, setSending]         = useState(false);
   const [result, setResult]           = useState<{ ok: boolean; msg: string } | null>(null);
   const [history, setHistory]         = useState<SentNotification[]>([]);
@@ -249,6 +250,7 @@ export default function NotificationsPage() {
         body: body.trim(),
         channel,
         roles,
+        audience: audience || null,
         sentBy: appUser?.uid ?? '',
         data,
       });
@@ -398,6 +400,21 @@ export default function NotificationsPage() {
             </div>
           </div>
 
+          {/* Audience by gender */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <label className="text-sm font-semibold text-slate-700 mb-2 block">קהל לפי מגדר</label>
+            <select
+              value={audience}
+              onChange={e => setAudience(e.target.value as '' | 'men' | 'women')}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            >
+              <option value="">כולם</option>
+              <option value="men">גברים (לא נשלח למי שבחרה אישה)</option>
+              <option value="women">נשים (לא נשלח למי שבחר גבר)</option>
+            </select>
+            <p className="text-xs text-slate-400 mt-2">מי שבחר "לא משנה" או עוד לא ענה — מקבל. מספר הנמענים למעלה אינו מתחשב בסינון זה.</p>
+          </div>
+
           {/* Target screen */}
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
             <label className="text-sm font-semibold text-slate-700 mb-2 block">פתיחת מסך בלחיצה על ההודעה</label>
@@ -412,6 +429,7 @@ export default function NotificationsPage() {
               <option value="Events">📅 אירועים</option>
               <option value="Businesses">🍽️ כשרות</option>
               <option value="Synagogues">🕍 בתי כנסת</option>
+              <option value="Shiurim">📚 שיעורי תורה</option>
               <option value="Mikveh">💧 מקווה</option>
               <option value="Gemach">🎁 גמ"ח</option>
               <option value="KashrutUpdates">✅ עדכוני כשרות</option>
