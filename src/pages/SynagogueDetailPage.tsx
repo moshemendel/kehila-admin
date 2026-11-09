@@ -422,7 +422,7 @@ function AnnouncementModal({ open, item, onSave, onClose }: {
   };
 
   return (
-    <Modal open={open} title={item ? 'עריכת הודעה' : 'הודעה חדשה'} onClose={onClose} size="md">
+    <Modal open={open} title={item ? 'עריכת אירוע' : 'אירוע חדש'} onClose={onClose} size="md">
       <div className="flex flex-col gap-4">
         <div>
           <label className={lbl}>כותרת *</label>
@@ -772,7 +772,7 @@ export default function SynagogueDetailPage() {
     { key: 'shabbat',       label: 'שבת' },
     { key: 'zmanim',        label: 'שיטת זמנים' },
     { key: 'shiurim',       label: `שיעורים (${shiurim.length})` },
-    { key: 'announcements', label: `הודעות (${announcements.length})` },
+    { key: 'announcements', label: `אירועים (${announcements.length})` },
   ];
 
   // The locality whose official street list applies to whatever's in the
@@ -1188,11 +1188,11 @@ export default function SynagogueDetailPage() {
             </div>
             <button onClick={() => { setEditAnn(null); setAnnModal(true); }}
               className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white rounded-xl text-sm font-semibold hover:bg-[#15306a]">
-              <Plus size={15} /> הודעה חדשה
+              <Plus size={15} /> אירוע חדש
             </button>
           </div>
           {visibleAnn.length === 0 && (
-            <p className="text-slate-400 text-sm">{annView === 'upcoming' ? 'אין הודעות פעילות' : 'אין הודעות בארכיון'}</p>
+            <p className="text-slate-400 text-sm">{annView === 'upcoming' ? 'אין אירועים פעילים' : 'אין אירועים בארכיון'}</p>
           )}
           <div className="flex flex-col gap-3">
             {[...visibleAnn].sort((a, b) => b.startDate.localeCompare(a.startDate)).map(a => (

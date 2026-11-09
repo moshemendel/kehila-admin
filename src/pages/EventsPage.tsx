@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import type { CommunityEvent, EventCategory, PendingCommunityEvent, City, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
-import { Plus, Trash2, CheckCircle2, XCircle } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, XCircle, Pencil, BellRing } from 'lucide-react';
 import { sendPush } from '../utils/push';
 
 const CATEGORY_LABELS: Record<EventCategory, string> = {
@@ -49,6 +49,9 @@ export default function EventsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [pushEvent, setPushEvent] = useState<CommunityEvent | null>(null);
+  const [pushing, setPushing] = useState(false);
   const [cityName, setCityName] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
   // Areas — a regional council's settlements, or a plain city's own one (in
@@ -95,8 +98,43 @@ export default function EventsPage() {
 
   const closeCreateModal = () => {
     setModalOpen(false);
+    setEditingId(null);
     setForm(EMPTY_FORM);
     setSubmitAttempted(false);
+  };
+
+  const openEdit = (ev: CommunityEvent) => {
+    setEditingId(ev.id);
+    setForm({
+      title: ev.title ?? '', description: ev.description ?? '',
+      category: ev.category ?? 'community', startDate: ev.startDate ?? '',
+      location: ev.location ?? '', isAlert: !!ev.isAlert, areaId: ev.areaId ?? '',
+      audience: ev.audience ?? 'all',
+    });
+    setModalOpen(true);
+  };
+
+  const handleSendPush = async () => {
+    if (!pushEvent) return;
+    setPushing(true);
+    try {
+      await sendPush({
+        cityId, cityName,
+        title: `📢 ${pushEvent.title.trim()}`,
+        body: (pushEvent.description ?? '').trim().slice(0, 120) || pushEvent.location || '',
+        channel: 'general',
+        sentBy: appUser?.uid ?? '',
+        data: { screen: 'EventDetail', params: { eventId: pushEvent.id } },
+        audience: pushAudience(pushEvent.audience),
+      });
+      await updateDoc(doc(db, 'events', pushEvent.id), { lastPushAt: serverTimestamp() });
+      setPushEvent(null);
+      load();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'שגיאה בשליחת ההתראה');
+    } finally {
+      setPushing(false);
+    }
   };
 
   const handleCreate = async () => {
@@ -109,6 +147,16 @@ export default function EventsPage() {
     }
     setSaving(true);
     try {
+      if (editingId) {
+        await updateDoc(doc(db, 'events', editingId), {
+          title: form.title.trim(), description: form.description, category: form.category,
+          startDate: form.startDate, location: form.location, isAlert: form.isAlert,
+          areaId: form.areaId, audience: form.audience,
+        });
+        closeCreateModal();
+        load();
+        return;
+      }
       await addDoc(collection(db, 'events'), {
         ...form, cityId, createdBy: appUser?.uid ?? '',
         createdAt: serverTimestamp(), isAlert: form.isAlert,
@@ -191,6 +239,7 @@ export default function EventsPage() {
     { key: 'startDate', header: 'תאריך', render: r => r.startDate ? new Date(r.startDate).toLocaleDateString('he-IL') : '—' },
     { key: 'location', header: 'מיקום' },
     { key: 'isAlert', header: 'דחוף', render: r => r.isAlert ? <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded-full border border-red-100">דחוף</span> : null },
+    { key: 'audience', header: 'קהל', render: r => r.audience && r.audience !== 'all' ? AUDIENCE_LABELS[r.audience] : 'כולם' },
   ];
 
   const pendingColumns: Column<PendingEvent>[] = [
@@ -260,16 +309,24 @@ export default function EventsPage() {
       ) : loading ? <div className="text-center py-16 text-slate-400">טוען...</div> : (
         tab === 'published' ? (
           <DataTable data={upcomingEvents} columns={columns} searchKeys={['title', 'location']}
-            actionsHeader="מחיקה"
+            actionsHeader="פעולות"
             actions={row => (
-              <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPushEvent(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="שלח התראה"><BellRing size={14} /></button>
+                <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700" title="עריכה"><Pencil size={14} /></button>
+                <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500" title="מחיקה"><Trash2 size={14} /></button>
+              </div>
             )}
           />
         ) : tab === 'expired' ? (
           <DataTable data={expiredEvents} columns={columns} searchKeys={['title', 'location']}
-            actionsHeader="מחיקה"
+            actionsHeader="פעולות"
             actions={row => (
-              <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500"><Trash2 size={14} /></button>
+              <div className="flex items-center gap-1">
+                <button onClick={() => setPushEvent(row)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600" title="שלח התראה"><BellRing size={14} /></button>
+                <button onClick={() => openEdit(row)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700" title="עריכה"><Pencil size={14} /></button>
+                <button onClick={() => setDeleteId(row.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500" title="מחיקה"><Trash2 size={14} /></button>
+              </div>
             )}
           />
         ) : (
@@ -289,7 +346,7 @@ export default function EventsPage() {
       )}
 
       {/* Create event modal */}
-      <Modal open={modalOpen} title="אירוע חדש" onClose={closeCreateModal}>
+      <Modal open={modalOpen} title={editingId ? 'עריכת אירוע' : 'אירוע חדש'} onClose={closeCreateModal}>
         <div className="grid grid-cols-2 gap-4">
           <Field label="כותרת *" colSpan><input value={form.title} onChange={f('title')} className={fieldCls(missingTitle)} /></Field>
           <Field label="קטגוריה">
@@ -326,9 +383,23 @@ export default function EventsPage() {
         <div className="flex gap-3 pt-4 border-t border-slate-100 mt-4">
           <button onClick={handleCreate} disabled={saving}
             className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50">
-            {saving ? 'שומר...' : 'פרסם אירוע'}
+            {saving ? 'שומר...' : editingId ? 'שמור שינויים' : 'פרסם אירוע'}
           </button>
           <button onClick={closeCreateModal} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">ביטול</button>
+        </div>
+      </Modal>
+
+      <Modal open={!!pushEvent} title="שליחת התראה" onClose={() => setPushEvent(null)} size="md">
+        <p className="text-slate-700 text-sm mb-2">לשלוח התראה על &quot;{pushEvent?.title}&quot;{cityName ? ` לתושבי ${cityName}` : ''}?</p>
+        <p className="text-slate-400 text-xs mb-2">
+          קהל: {pushEvent?.audience && pushEvent.audience !== 'all' ? AUDIENCE_LABELS[pushEvent.audience] : 'כולם'}. לחיצה על ההתראה תפתח את האירוע. לא ניתן לבטל לאחר השליחה.
+        </p>
+        {(pushEvent as any)?.lastPushAt && (
+          <p className="text-orange-600 text-xs mb-2">שים לב: כבר נשלחה התראה על אירוע זה ב-{toMillis((pushEvent as any).lastPushAt) ? new Date(toMillis((pushEvent as any).lastPushAt)).toLocaleString('he-IL') : 'בעבר'}.</p>
+        )}
+        <div className="flex gap-3 mt-4">
+          <button onClick={handleSendPush} disabled={pushing} className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50">{pushing ? 'שולח...' : 'שלח התראה'}</button>
+          <button onClick={() => setPushEvent(null)} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">ביטול</button>
         </div>
       </Modal>
 

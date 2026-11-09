@@ -177,6 +177,7 @@ export interface Shiur {
   topic?: string;
   /** Absent = not stated, open to everyone. */
   audience?: 'men' | 'women' | 'all';
+  lastPushAt?: unknown;
 }
 
 export type SynagogueEventCategory = 'shiur' | 'community' | 'youth' | 'charity' | 'holiday' | 'announcement' | 'alert';
