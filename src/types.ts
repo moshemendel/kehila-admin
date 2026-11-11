@@ -106,6 +106,12 @@ export interface City {
   /** Religious council emblem (https image) — the app's home screen and the
    *  headers of its section lists. */
   religiousCouncilLogoUrl?: string;
+  /** Logo frame on the home header: 'disc' (white circle, the default) or 'none' (shown as is). */
+  religiousCouncilLogoFrame?: 'disc' | 'none';
+  /** Logo size multiplier, 0.6-1.3; absent = 1. */
+  religiousCouncilLogoScale?: number;
+  /** Home header colour '#RRGGBB' (white text needs contrast >= 4.5); absent = the default blue. */
+  headerColor?: string;
   /** Which zmanim residents see (keys of ZMANIM_CATALOG); absent = the usual set. */
   zmanimShown?: string[];
 }
@@ -194,6 +200,8 @@ export interface SynagogueAnnouncement {
 }
 
 export interface Synagogue {
+  imageUrl?: string;              // primary / mood image
+  images?: string[];              // additional gallery images
   /** Which custom decides when this shul's selichot begin — re-derived yearly.
    *  See kehila-app/src/types/index.ts. */
   selichotCustom?: 'sephardi' | 'ashkenazi';
@@ -261,6 +269,8 @@ export interface AppointmentConfig {
 }
 
 export interface Mikveh {
+  imageUrl?: string;              // primary / atmosphere image
+  images?: string[];              // additional gallery images
   id: string;
   cityId: string;
   /** Which of the tenant's areas this mikveh is in. Mirrors kehila-app's
@@ -292,6 +302,7 @@ export interface KosherCertificate {
   validUntil: string;
   isActive: boolean;
   notes?: string;
+  imageUrl?: string;              // photo of the certificate
 }
 
 // Mirrors kehila-app's KashrutUpdate — same collection (kashrutUpdates), feeds the
@@ -337,6 +348,7 @@ export interface business {
 export type EventCategory = 'shiur' | 'community' | 'youth' | 'charity' | 'holiday' | 'announcement' | 'alert';
 
 export interface CommunityEvent {
+  imageUrl?: string;              // single event picture
   id: string;
   cityId: string;
   /** Which of the tenant's areas this event is in/for. Mirrors kehila-app's

@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { collection, getDocs, query, where, doc, deleteDoc, updateDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, deleteDoc, updateDoc, addDoc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -8,6 +8,10 @@ import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import { Plus, Trash2, CheckCircle2, XCircle, Pencil, BellRing } from 'lucide-react';
 import { sendPush } from '../utils/push';
+import { nanoid } from '../utils/nanoid';
+import ImageUploadField from '../components/ImageUploadField';
+import { useImageTracker } from '../utils/useImageTracker';
+import { deleteImageByUrl } from '../utils/uploadImage';
 
 const CATEGORY_LABELS: Record<EventCategory, string> = {
   shiur: 'שיעור', community: 'קהילה', youth: 'נוער', charity: 'צדקה',
@@ -54,6 +58,11 @@ export default function EventsPage() {
   const [pushing, setPushing] = useState(false);
   const [cityName, setCityName] = useState('');
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  // One picture per event. The id is allocated before the first save so the upload has a folder
+  // (events/<id>/image/) and abandoning the form leaves neither a document nor a file behind.
+  const [images, setImages] = useState<string[]>([]);
+  const [pendingId, setPendingId] = useState('');
+  const imageTracker = useImageTracker();
   // Areas — a regional council's settlements, or a plain city's own one (in
   // which case this whole layer stays hidden — the "golden rule").
   const [areas, setAreas] = useState<Area[]>([]);
@@ -96,7 +105,15 @@ export default function EventsPage() {
     setAreaFilter('');
   }, [cityId]);
 
+  const openAdd = () => {
+    imageTracker.reset();
+    setPendingId(nanoid());
+    setImages([]);
+    setModalOpen(true);
+  };
+
   const closeCreateModal = () => {
+    imageTracker.discard();
     setModalOpen(false);
     setEditingId(null);
     setForm(EMPTY_FORM);
@@ -104,6 +121,9 @@ export default function EventsPage() {
   };
 
   const openEdit = (ev: CommunityEvent) => {
+    imageTracker.reset();
+    setPendingId(ev.id);
+    setImages(ev.imageUrl ? [ev.imageUrl] : []);
     setEditingId(ev.id);
     setForm({
       title: ev.title ?? '', description: ev.description ?? '',
@@ -152,15 +172,19 @@ export default function EventsPage() {
           title: form.title.trim(), description: form.description, category: form.category,
           startDate: form.startDate, location: form.location, isAlert: form.isAlert,
           areaId: form.areaId, audience: form.audience,
+          imageUrl: images[0] ?? '',
         });
+        imageTracker.commit(images);
         closeCreateModal();
         load();
         return;
       }
-      await addDoc(collection(db, 'events'), {
+      await setDoc(doc(db, 'events', pendingId || nanoid()), {
         ...form, cityId, createdBy: appUser?.uid ?? '',
         createdAt: serverTimestamp(), isAlert: form.isAlert,
+        imageUrl: images[0] ?? '',
       });
+      imageTracker.commit(images);
       // Only urgent (isAlert) events broadcast a push to the whole city — regular
       // events used to push everyone regardless, which felt spammy for the pilot.
       if (form.isAlert) {
@@ -185,7 +209,9 @@ export default function EventsPage() {
   };
 
   const handleDelete = async (id: string) => {
+    const picture = events.find(e => e.id === id)?.imageUrl;
     await deleteDoc(doc(db, 'events', id));
+    if (picture) void deleteImageByUrl(picture);
     setDeleteId(null);
     load();
   };
@@ -271,7 +297,7 @@ export default function EventsPage() {
           <h1 className="text-2xl font-bold text-slate-800">אירועים</h1>
           <p className="text-slate-400 text-sm mt-0.5">{upcomingEvents.length} אירועים פעילים</p>
         </div>
-        <button onClick={() => setModalOpen(true)}
+        <button onClick={openAdd}
           className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white rounded-xl text-sm font-semibold hover:bg-[#15306a]">
           <Plus size={15} /> אירוע חדש
         </button>
@@ -374,6 +400,16 @@ export default function EventsPage() {
           <Field label="תיאור" colSpan>
             <textarea value={form.description} onChange={f('description')} rows={3} className={`${inp} resize-none`} />
           </Field>
+          <div className="col-span-2">
+            <ImageUploadField
+              single
+              title="תמונה"
+              dir={pendingId ? `events/${pendingId}/image` : ''}
+              images={images}
+              onChange={setImages}
+              tracker={imageTracker}
+            />
+          </div>
           <div className="col-span-2 flex items-center gap-3">
             <input type="checkbox" id="isAlert" checked={form.isAlert}
               onChange={e => setForm(p => ({ ...p, isAlert: e.target.checked }))} className="w-4 h-4 accent-red-600" />

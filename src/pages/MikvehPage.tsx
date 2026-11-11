@@ -16,6 +16,8 @@ import HoursScheduleEditor from '../components/HoursScheduleEditor';
 import { exportToExcel } from '../utils/excel';
 import { Plus, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
+import ImageUploadField from '../components/ImageUploadField';
+import { useImageTracker } from '../utils/useImageTracker';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
@@ -94,6 +96,11 @@ export default function MikvehPage() {
   const [editing, setEditing] = useState<Mikveh | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  // Pictures: ordered, [0] = primary "atmosphere" image (imageUrl), the rest go to images[].
+  // The id is allocated before the first save so uploads have a folder and backing out leaves no record.
+  const [images, setImages] = useState<string[]>([]);
+  const [pendingId, setPendingId] = useState('');
+  const imageTracker = useImageTracker();
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Neighborhood dropdown state
@@ -148,6 +155,9 @@ export default function MikvehPage() {
   };
 
   const openAdd = () => {
+    imageTracker.reset();
+    setPendingId(nanoid());
+    setImages([]);
     setEditing(null);
     setPendingPick(null);
     setForm(EMPTY_FORM);
@@ -155,6 +165,9 @@ export default function MikvehPage() {
   };
 
   const openEdit = (row: Mikveh) => {
+    imageTracker.reset();
+    setPendingId(row.id);
+    setImages([...(row.imageUrl ? [row.imageUrl] : []), ...(row.images ?? []).filter(u => u !== row.imageUrl)]);
     setEditing(row);
     setPendingPick(row.latitude != null && row.longitude != null ? { lat: row.latitude, lng: row.longitude } : null);
     setForm({
@@ -173,16 +186,22 @@ export default function MikvehPage() {
     setModalOpen(true);
   };
 
+  // Closing without saving: drop files uploaded in this session (removed ones stay, the doc still uses them).
+  const closeModal = () => { imageTracker.discard(); setModalOpen(false); };
+
   const handleSave = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
     try {
-      const id = editing?.id ?? nanoid();
+      const id = pendingId || editing?.id || nanoid();
       await setDoc(doc(db, 'mikvaot', id), {
         ...editing, ...form, id, cityId, updatedAt: serverTimestamp(),
+        imageUrl: images[0] ?? '',
+        images: images.slice(1),
         contacts: form.contacts.filter(c => c.name.trim()).map(c => ({ name: c.name, ...(c.phone ? { phone: c.phone } : {}) })),
         appointmentConfig: form.requiresAppointment ? form.appointmentConfig : null,
       }, { merge: true });
+      imageTracker.commit(images);
       setModalOpen(false);
       load();
     } catch (e: any) {
@@ -208,6 +227,9 @@ export default function MikvehPage() {
   // closing the modal without saving leaves no orphaned record.
   const handleDuplicate = (row: Mikveh) => {
     const id = nanoid();
+    imageTracker.reset();
+    setPendingId(id);
+    setImages([]);
     const dupForm = {
       ...EMPTY_FORM,
       name: `${row.name} (העתק)`,
@@ -326,7 +348,7 @@ export default function MikvehPage() {
       )}
 
       {/* Edit / Add modal */}
-      <Modal open={modalOpen} title={editing ? 'עריכת מקווה' : 'הוספת מקווה'} size="xl" onClose={() => setModalOpen(false)}>
+      <Modal open={modalOpen} title={editing ? 'עריכת מקווה' : 'הוספת מקווה'} size="xl" onClose={closeModal}>
         <div className="grid grid-cols-2 gap-4">
           {/* Name */}
           <Field label="שם *" colSpan><input value={form.name} onChange={f('name')} className={inp} /></Field>
@@ -502,6 +524,17 @@ export default function MikvehPage() {
             </div>
           )}
 
+          {/* Pictures */}
+          <div className="col-span-2 pt-4 border-t border-slate-100">
+            <ImageUploadField
+              dir={pendingId ? `mikvaot/${pendingId}/gallery` : ''}
+              images={images}
+              onChange={setImages}
+              primaryLabel="תמונת אווירה"
+              tracker={imageTracker}
+            />
+          </div>
+
           {/* Notes */}
           <Field label="הערות" colSpan>
             <textarea value={form.notes} onChange={f('notes')} rows={3} className={`${inp} resize-none`} />
@@ -513,7 +546,7 @@ export default function MikvehPage() {
             className="flex-1 bg-[#1B3A6B] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#15306a] disabled:opacity-50">
             {saving ? 'שומר...' : editing ? 'שמור שינויים' : 'הוסף'}
           </button>
-          <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">ביטול</button>
+          <button onClick={closeModal} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">ביטול</button>
         </div>
       </Modal>
 

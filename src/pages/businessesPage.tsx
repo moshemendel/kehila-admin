@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   collection, getDocs, query, where, doc, setDoc, deleteDoc, addDoc,
   serverTimestamp, documentId, deleteField, getDoc, updateDoc, arrayUnion, Timestamp,
 } from 'firebase/firestore';
-import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
-import { db, storage } from '../firebase';
+import { db } from '../firebase';
 import { useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMapSync } from '../contexts/MapSyncContext';
@@ -15,12 +14,13 @@ import AddressGeocodeField from '../components/AddressGeocodeField';
 import ExcelImportModal from '../components/ExcelImportModal';
 import { exportToExcel } from '../utils/excel';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
-import { Plus, Pencil, Trash2, Upload, Download, ShieldCheck, EyeOff, ImagePlus, Star, X, MapPin, Square, CheckSquare, AlertTriangle, ArrowUpCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, Download, ShieldCheck, EyeOff, MapPin, Square, CheckSquare, AlertTriangle, ArrowUpCircle } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { nanoid } from '../utils/nanoid';
-import ImageCropModal from '../components/ImageCropModal';
+import ImageUploadField from '../components/ImageUploadField';
+import { useImageTracker, type ImageTracker } from '../utils/useImageTracker';
 import { sendPush } from '../utils/push';
 import MapTiles from '../components/MapTiles';
 
@@ -180,13 +180,15 @@ const EMPTY_FORM = {
 type CertDraft = Omit<KosherCertificate, 'id'>;
 
 const EMPTY_CERT: CertDraft = {
-  issuedBy: '', kosherLevel: [], validFrom: '', validUntil: '', isActive: true, notes: '',
+  issuedBy: '', kosherLevel: [], validFrom: '', validUntil: '', isActive: true, notes: '', imageUrl: '',
 };
 
 
 // ─── CertForm component ───────────────────────────────────────────────────────
 
-function CertForm({ draft, onChange, onSave, onCancel, isNew }: {
+function CertForm({ draft, onChange, onSave, onCancel, isNew, imageDir, tracker }: {
+  imageDir: string;
+  tracker: ImageTracker;
   draft: CertDraft;
   onChange: (d: CertDraft) => void;
   onSave: () => void;
@@ -239,6 +241,15 @@ function CertForm({ draft, onChange, onSave, onCancel, isNew }: {
           ))}
         </div>
       </div>
+
+      <ImageUploadField
+        single
+        title="תמונת התעודה"
+        dir={imageDir}
+        images={draft.imageUrl ? [draft.imageUrl] : []}
+        onChange={imgs => onChange({ ...draft, imageUrl: imgs[0] ?? '' })}
+        tracker={tracker}
+      />
 
       <div className="flex items-center justify-between pt-1">
         <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
@@ -315,15 +326,10 @@ export default function BusinessesPage() {
 
   // Image state (canManageOps)
   const [images,     setImages]     = useState<string[]>([]);  // ordered; [0] = primary
-  const [uploading,  setUploading]  = useState(false);
   const [pendingId,  setPendingId]  = useState('');  // doc ID for new businesses
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Crop queue: files waiting to be cropped before upload
-  const [cropQueue,    setCropQueue]    = useState<File[]>([]);
-  const [cropFile,     setCropFile]     = useState<File | null>(null);
-  const [cropFileIdx,  setCropFileIdx]  = useState(0);
-  const [cropTotal,    setCropTotal]    = useState(0);
+  // Uploads/removals (gallery + certificate pictures) are settled on save or cancel.
+  const imageTracker = useImageTracker();
+  const [certNewId,  setCertNewId]  = useState('');  // pre-allocated id of the certificate being added
 
   // Neighborhood dropdown
   const [neighborhoods,       setNeighborhoods]       = useState<string[]>([]);
@@ -410,6 +416,7 @@ export default function BusinessesPage() {
   const openAdd = () => {
     const id = nanoid();
     setEditing(null);
+    imageTracker.reset();
     setPendingId(id);
     setForm(EMPTY_FORM);
     setCerts([]);
@@ -426,6 +433,7 @@ export default function BusinessesPage() {
       ...(row.imageUrl ? [row.imageUrl] : []),
       ...(row.images ?? []).filter(u => u !== row.imageUrl),
     ];
+    imageTracker.reset();
     setEditing(row);
     setPendingId(row.id);
     setForm({
@@ -444,81 +452,8 @@ export default function BusinessesPage() {
     setModalOpen(true);
   };
 
-  // ── Image handlers ───────────────────────────────────────────────────────────
-
-  const uploadBlob = async (blob: Blob, filename: string): Promise<string> => {
-    const ext  = filename.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const path = `businesses/${pendingId}/gallery/${nanoid()}.${ext}`;
-    const sRef = storageRef(storage, path);
-    await uploadBytes(sRef, blob, { contentType: blob.type || `image/${ext}` });
-    return getDownloadURL(sRef);
-  };
-
-  const advanceCropQueue = (remaining: File[]) => {
-    if (remaining.length === 0) {
-      setCropFile(null);
-      setCropQueue([]);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
-    setCropFile(remaining[0]);
-    setCropFileIdx(cropTotal - remaining.length);
-    setCropQueue(remaining.slice(1));
-  };
-
-  const onFilesSelected = (files: FileList) => {
-    if (!files.length) return;
-    const arr = Array.from(files);
-    setCropTotal(arr.length);
-    setCropFileIdx(0);
-    setCropFile(arr[0]);
-    setCropQueue(arr.slice(1));
-  };
-
-  const onCropConfirm = async (blob: Blob, filename: string) => {
-    setCropFile(null);           // close crop modal immediately
-    setUploading(true);
-    try {
-      const url = await uploadBlob(blob, filename);
-      setImages(prev => [...prev, url]);
-    } catch (err) {
-      console.error('Image upload failed:', err);
-    } finally {
-      setUploading(false);
-    }
-    advanceCropQueue(cropQueue);
-  };
-
-  const onCropSkip = async (file: File) => {
-    setCropFile(null);
-    setUploading(true);
-    try {
-      const url = await uploadBlob(file, file.name);
-      setImages(prev => [...prev, url]);
-    } catch (err) {
-      console.error('Image upload failed:', err);
-    } finally {
-      setUploading(false);
-    }
-    advanceCropQueue(cropQueue);
-  };
-
-  const onCropCancel = () => {
-    setCropFile(null);
-    setCropQueue([]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleImageDelete = (url: string) => {
-    setImages(prev => prev.filter(u => u !== url));
-    try {
-      const match = url.match(/\/o\/(.+?)\?/);
-      if (match) deleteObject(storageRef(storage, decodeURIComponent(match[1]))).catch(() => {});
-    } catch { /* ignore */ }
-  };
-
-  const setPrimaryImage = (url: string) =>
-    setImages(prev => [url, ...prev.filter(u => u !== url)]);
+  // Closing without saving: drop files uploaded in this session (removed ones stay, the doc still uses them).
+  const closeModal = () => { imageTracker.discard(); setModalOpen(false); };
 
   // ── Save ────────────────────────────────────────────────────────────────────
 
@@ -559,6 +494,9 @@ export default function BusinessesPage() {
         kosherCertificates: newCerts,
         updatedAt: serverTimestamp(),
       }, { merge: true });
+
+      // Saved: now it is safe to delete pictures the document no longer references.
+      imageTracker.commit([...images, ...newCerts.map(c => c.imageUrl ?? '')]);
 
       if (canManageKash && editing) {
         if (changes.length > 0) {
@@ -661,21 +599,25 @@ export default function BusinessesPage() {
 
   // ── Certificate helpers ─────────────────────────────────────────────────────
 
-  const startAddCert  = () => { setCertDraft(EMPTY_CERT); setCertEditId('new'); };
+  const startAddCert  = () => { setCertDraft(EMPTY_CERT); setCertNewId(nanoid()); setCertEditId('new'); };
   const startEditCert = (c: KosherCertificate) => {
-    setCertDraft({ issuedBy: c.issuedBy, kosherLevel: [...c.kosherLevel], validFrom: c.validFrom, validUntil: c.validUntil, isActive: c.isActive, notes: c.notes ?? '' });
+    setCertDraft({ issuedBy: c.issuedBy, kosherLevel: [...c.kosherLevel], validFrom: c.validFrom, validUntil: c.validUntil, isActive: c.isActive, notes: c.notes ?? '', imageUrl: c.imageUrl ?? '' });
     setCertEditId(c.id);
   };
   const saveCert = () => {
     if (!certDraft.issuedBy.trim()) return;
     if (certEditId === 'new') {
-      setCerts(p => [...p, { ...certDraft, id: nanoid() }]);
+      setCerts(p => [...p, { ...certDraft, id: certNewId || nanoid() }]);
     } else if (certEditId) {
       setCerts(p => p.map(c => c.id === certEditId ? { ...c, ...certDraft } : c));
     }
     setCertEditId(null);
   };
-  const deleteCert = (id: string) => setCerts(p => p.filter(c => c.id !== id));
+  const deleteCert = (id: string) => {
+    const gone = certs.find(c => c.id === id);
+    if (gone?.imageUrl) imageTracker.onRemoved(gone.imageUrl);
+    setCerts(p => p.filter(c => c.id !== id));
+  };
 
   // ── Table columns ───────────────────────────────────────────────────────────
 
@@ -798,7 +740,7 @@ export default function BusinessesPage() {
       )}
 
       {/* ── Edit / Add modal ── */}
-      <Modal open={modalOpen} title={modalTitle} size="xl" onClose={() => setModalOpen(false)}>
+      <Modal open={modalOpen} title={modalTitle} size="xl" onClose={closeModal}>
         <div className="space-y-4">
 
           {/* Ops view: read-only business name chip (no editing of the business name itself) */}
@@ -946,80 +888,12 @@ export default function BusinessesPage() {
           {/* ── Image gallery (ops managers) ── */}
           {canManageOps && (
             <div className="pt-4 border-t border-slate-100">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-semibold text-slate-700">תמונות</span>
-                <label className={`flex items-center gap-1.5 text-xs font-medium cursor-pointer transition-colors ${uploading ? 'text-slate-400 pointer-events-none' : 'text-blue-600 hover:text-blue-800'}`}>
-                  <ImagePlus size={13} />
-                  {uploading ? 'מעלה...' : 'הוספת תמונות'}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    disabled={uploading}
-                    onChange={e => e.target.files && onFilesSelected(e.target.files)}
-                  />
-                </label>
-              </div>
-
-              {images.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-5 border border-dashed border-slate-200 rounded-xl">
-                  אין תמונות — לחץ על "הוספת תמונות" להוספה
-                </p>
-              ) : (
-                <div className="space-y-3">
-
-                  {/* Primary / mood image — full width */}
-                  <div>
-                    <div className="flex items-center gap-1 mb-1.5">
-                      <Star size={11} className="fill-amber-400 text-amber-400" />
-                      <span className="text-[11px] font-semibold text-amber-600 uppercase tracking-wide">תמונת מצב</span>
-                    </div>
-                    <div className="relative rounded-xl overflow-hidden border-2 border-amber-300 bg-slate-100 h-40 group">
-                      <img src={images[0]} alt="mood" className="w-full h-full object-contain" />
-                      <button
-                        type="button"
-                        onClick={() => handleImageDelete(images[0])}
-                        className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/40 text-white hover:bg-red-500/80 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Additional images */}
-                  {images.length > 1 && (
-                    <div>
-                      <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1.5">תמונות נוספות</p>
-                      <div className="flex flex-wrap gap-3">
-                        {images.slice(1).map((url) => (
-                          <div key={url} className="flex flex-col gap-1 items-center">
-                            <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-100 w-20 h-20 group flex-shrink-0">
-                              <img src={url} alt="" className="w-full h-full object-contain" />
-                              <button
-                                type="button"
-                                onClick={() => handleImageDelete(url)}
-                                className="absolute top-1 left-1 p-1 rounded-lg bg-black/40 text-white hover:bg-red-500/80 transition-colors opacity-0 group-hover:opacity-100"
-                              >
-                                <X size={11} />
-                              </button>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setPrimaryImage(url)}
-                              className="flex items-center gap-0.5 text-[10px] font-medium text-amber-600 hover:text-amber-800 transition-colors"
-                            >
-                              <Star size={9} />
-                              הגדר כמצב
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              <ImageUploadField
+                dir={pendingId ? `businesses/${pendingId}/gallery` : ''}
+                images={images}
+                onChange={setImages}
+                tracker={imageTracker}
+              />
             </div>
           )}
 
@@ -1039,7 +913,7 @@ export default function BusinessesPage() {
               <div className="space-y-2">
                 {certs.map(cert =>
                   certEditId === cert.id ? (
-                    <CertForm key={cert.id} draft={certDraft} onChange={setCertDraft} onSave={saveCert} onCancel={() => setCertEditId(null)} />
+                    <CertForm key={cert.id} imageDir={`businesses/${pendingId}/certificates/${cert.id}`} tracker={imageTracker} draft={certDraft} onChange={setCertDraft} onSave={saveCert} onCancel={() => setCertEditId(null)} />
                   ) : (
                     <div key={cert.id} className={`flex items-center gap-3 p-3 rounded-xl border ${cert.isActive ? 'bg-green-50 border-green-100' : 'bg-slate-50 border-slate-100'}`}>
                       <ShieldCheck size={15} className={cert.isActive ? 'text-green-600' : 'text-slate-300'} />
@@ -1067,7 +941,7 @@ export default function BusinessesPage() {
                 )}
 
                 {certEditId === 'new' && (
-                  <CertForm draft={certDraft} onChange={setCertDraft} onSave={saveCert} onCancel={() => setCertEditId(null)} isNew />
+                  <CertForm imageDir={`businesses/${pendingId}/certificates/${certNewId}`} tracker={imageTracker} draft={certDraft} onChange={setCertDraft} onSave={saveCert} onCancel={() => setCertEditId(null)} isNew />
                 )}
               </div>
             </div>
@@ -1082,7 +956,7 @@ export default function BusinessesPage() {
           >
             {saving ? 'שומר...' : editing ? 'שמור שינויים' : 'הוסף'}
           </button>
-          <button onClick={() => setModalOpen(false)} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">
+          <button onClick={closeModal} className="px-5 py-2.5 border border-slate-200 rounded-xl text-sm hover:bg-slate-50">
             ביטול
           </button>
         </div>
@@ -1180,16 +1054,6 @@ export default function BusinessesPage() {
           { key: 'longitude', label: 'קו אורך',  transform: v => parseFloat(v) || undefined },
         ]}
         onImport={handleImport}
-      />
-
-      {/* Image crop modal — shown before each upload */}
-      <ImageCropModal
-        file={cropFile}
-        fileIndex={cropFileIdx}
-        fileCount={cropTotal}
-        onConfirm={onCropConfirm}
-        onSkip={onCropSkip}
-        onCancel={onCropCancel}
       />
     </div>
   );

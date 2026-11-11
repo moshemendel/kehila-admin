@@ -16,6 +16,8 @@ import L from 'leaflet';
 import { useMapSync } from '../contexts/MapSyncContext';
 import { useAuth } from '../contexts/AuthContext';
 import { nanoid } from '../utils/nanoid';
+import ImageUploadField from '../components/ImageUploadField';
+import { useImageTracker } from '../utils/useImageTracker';
 import MapTiles from '../components/MapTiles';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
 import ZmanimMethodEditor from '../components/ZmanimMethodEditor';
@@ -537,6 +539,12 @@ export default function SynagogueDetailPage() {
     latitude: '', longitude: '',
   });
 
+  // Pictures: ordered, [0] = primary (imageUrl), the rest go to images[]
+  const [images, setImages] = useState<string[]>([]);
+  const imageTracker = useImageTracker();
+  // Leaving the page with unsaved uploads: don't strand them in Storage.
+  useEffect(() => () => imageTracker.discard(), [imageTracker]);
+
   // Prayer schedules
   const [weekly, setWeekly] = useState<WeeklySchedule>({ shacharit: [], mincha: [], maariv: [], selichot: [] });
   const [weeklyNotes, setWeeklyNotes] = useState('');
@@ -639,6 +647,8 @@ export default function SynagogueDetailPage() {
         notes: data.notes ?? '',
         latitude: String(data.latitude ?? ''), longitude: String(data.longitude ?? ''),
       });
+      imageTracker.reset();
+      setImages([...(data.imageUrl ? [data.imageUrl] : []), ...(data.images ?? []).filter(u => u !== data.imageUrl)]);
       const ws = data.weeklySchedule ?? { shacharit: [], mincha: [], maariv: [] };
       setWeekly({ shacharit: ws.shacharit ?? [], mincha: ws.mincha ?? [], maariv: ws.maariv ?? [], selichot: ws.selichot ?? [] });
       setWeeklyNotes(ws.notes ?? '');
@@ -670,8 +680,11 @@ export default function SynagogueDetailPage() {
         notes: info.notes,
         latitude: parseFloat(info.latitude) || null,
         longitude: parseFloat(info.longitude) || null,
+        imageUrl: images[0] ?? '',
+        images: images.slice(1),
         updatedAt: serverTimestamp(),
       });
+      imageTracker.commit(images);
       flash();
     } catch (e: any) {
       alert(e?.message ?? 'שגיאה בשמירה');
@@ -999,6 +1012,17 @@ export default function SynagogueDetailPage() {
                       בחר במפה
                     </button>
                   </div>
+                </div>
+
+                {/* Pictures */}
+                <div className="col-span-2 pt-2 border-t border-slate-100">
+                  <ImageUploadField
+                    dir={id ? `synagogues/${id}/gallery` : ''}
+                    images={images}
+                    onChange={setImages}
+                    tracker={imageTracker}
+                  />
+                  <p className="text-[11px] text-slate-400 mt-2">השינויים בתמונות נשמרים בלחיצה על "שמור שינויים".</p>
                 </div>
 
                 {/* Notes */}
