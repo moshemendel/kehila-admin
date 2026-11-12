@@ -7,7 +7,7 @@ import { db } from '../firebase';
 import { useParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMapSync } from '../contexts/MapSyncContext';
-import type { business, KosherCertificate, KosherLevel, City, KashrutUpdate, Area } from '../types';
+import type { business, BusinessDepartment, KosherCertificate, KosherLevel, City, KashrutUpdate, Area } from '../types';
 import DataTable, { type Column } from '../components/DataTable';
 import Modal from '../components/Modal';
 import AddressGeocodeField from '../components/AddressGeocodeField';
@@ -21,6 +21,7 @@ import L from 'leaflet';
 import { nanoid } from '../utils/nanoid';
 import ImageUploadField from '../components/ImageUploadField';
 import { useImageTracker, type ImageTracker } from '../utils/useImageTracker';
+import { cropToStore, type MoodCrop } from '../utils/moodCrop';
 import { sendPush } from '../utils/push';
 import MapTiles from '../components/MapTiles';
 
@@ -244,6 +245,8 @@ function CertForm({ draft, onChange, onSave, onCancel, isNew, imageDir, tracker 
 
       <ImageUploadField
         single
+        fit="contain"
+        aspect="4 / 3"
         title="תמונת התעודה"
         dir={imageDir}
         images={draft.imageUrl ? [draft.imageUrl] : []}
@@ -314,6 +317,7 @@ export default function BusinessesPage() {
 
   // Certificate state (canManageKash only)
   const [certs,      setCerts]      = useState<KosherCertificate[]>([]);
+  const [departments, setDepartments] = useState<BusinessDepartment[]>([]);
   const [certEditId, setCertEditId] = useState<string | 'new' | null>(null);
   const [certDraft,  setCertDraft]  = useState<CertDraft>(EMPTY_CERT);
 
@@ -328,6 +332,7 @@ export default function BusinessesPage() {
   const [images,     setImages]     = useState<string[]>([]);  // ordered; [0] = primary
   const [pendingId,  setPendingId]  = useState('');  // doc ID for new businesses
   // Uploads/removals (gallery + certificate pictures) are settled on save or cancel.
+  const [imageCrop, setImageCrop] = useState<MoodCrop | undefined>(undefined);
   const imageTracker = useImageTracker();
   const [certNewId,  setCertNewId]  = useState('');  // pre-allocated id of the certificate being added
 
@@ -420,8 +425,10 @@ export default function BusinessesPage() {
     setPendingId(id);
     setForm(EMPTY_FORM);
     setCerts([]);
+    setDepartments([]);
     setCertEditId(null);
     setImages([]);
+    setImageCrop(undefined);
     setContacts([]);
     setPendingPick(null);
     setModalOpen(true);
@@ -445,8 +452,10 @@ export default function BusinessesPage() {
       openingHours: (row.openingHours as any) ?? {},
     });
     setCerts(row.kosherCertificates ?? []);
+    setDepartments(row.departments ?? []);
     setCertEditId(null);
     setImages(allImages);
+    setImageCrop(row.imageCrop);
     setContacts(row.contacts?.map(c => ({ name: c.name, phone: c.phone ?? '' })) ?? []);
     setPendingPick(row.latitude != null && row.longitude != null ? { lat: row.latitude, lng: row.longitude } : null);
     setModalOpen(true);
@@ -482,12 +491,20 @@ export default function BusinessesPage() {
           latitude:  form.latitude  ?? deleteField(),
           longitude: form.longitude ?? deleteField(),
           isHidden: rabbanutDeactivated ? true : rabbanutReactivated ? false : form.isHidden,
+          departments: departments.filter(d => d.name.trim()).map(d => ({
+            id: d.id, name: d.name.trim(), categories: d.categories ?? [],
+            kosherLevel: d.kosherLevel.length ? d.kosherLevel : ['regular'],
+            ...(d.mashgiachName?.trim() ? { mashgiachName: d.mashgiachName.trim() } : {}),
+            ...(d.mashgiachPhone?.trim() ? { mashgiachPhone: d.mashgiachPhone.trim() } : {}),
+          })),
           contacts: contacts.filter(c => c.name.trim()).map(c => ({ name: c.name, ...(c.phone ? { phone: c.phone } : {}) })),
         } : {}),
         ...(canManageOps ? {
           phone: form.phone, website: form.website,
           description: form.description, openingHours: form.openingHours,
           imageUrl: images[0] ?? '',
+          // Kept even when default (cover); absent means the picture is shown whole.
+          imageCrop: cropToStore(imageCrop, images[0], true) ?? deleteField(),
           images: images.slice(1),
         } : {}),
         id, cityId,
@@ -889,9 +906,11 @@ export default function BusinessesPage() {
           {canManageOps && (
             <div className="pt-4 border-t border-slate-100">
               <ImageUploadField
+                fit="contain"
                 dir={pendingId ? `businesses/${pendingId}/gallery` : ''}
                 images={images}
                 onChange={setImages}
+                crop={{ value: imageCrop, onChange: setImageCrop, keepDefault: true }}
                 tracker={imageTracker}
               />
             </div>
@@ -943,6 +962,54 @@ export default function BusinessesPage() {
                 {certEditId === 'new' && (
                   <CertForm imageDir={`businesses/${pendingId}/certificates/${certNewId}`} tracker={imageTracker} draft={certDraft} onChange={setCertDraft} onSave={saveCert} onCancel={() => setCertEditId(null)} isNew />
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Departments with their own kashrut (supermarkets, chains) ── */}
+          {canManageKash && (
+            <div className="pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-semibold text-slate-700">מחלקות עם כשרות נפרדת</span>
+                <button onClick={() => setDepartments(p => [...p, { id: nanoid(), name: '', categories: [], kosherLevel: ['regular'] }])}
+                  className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium">
+                  <Plus size={13} /> הוסף מחלקה
+                </button>
+              </div>
+              <div className="space-y-2">
+                {departments.map(d => {
+                  const patch = (x: Partial<BusinessDepartment>) => setDepartments(p => p.map(y => y.id === d.id ? { ...y, ...x } : y));
+                  const toggle = (lvl: KosherLevel) => {
+                    const has = d.kosherLevel.includes(lvl);
+                    let next = has ? d.kosherLevel.filter(l => l !== lvl) : [...d.kosherLevel, lvl];
+                    if (!has && lvl === 'mehadrin') next = next.filter(l => l !== 'regular');
+                    if (!has && lvl === 'regular') next = next.filter(l => l !== 'mehadrin');
+                    patch({ kosherLevel: next });
+                  };
+                  return (
+                    <div key={d.id} className="p-3 rounded-xl border border-slate-200 space-y-2">
+                      <div className="flex gap-2">
+                        <input value={d.name} onChange={e => patch({ name: e.target.value })} placeholder="שם המחלקה (פירות וירקות, דגים...)" className={inp} />
+                        <button onClick={() => setDepartments(p => p.filter(y => y.id !== d.id))} className="p-1.5 rounded-lg hover:bg-slate-50 text-slate-400 hover:text-red-500">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {KOSHER_LEVELS.map(l => (
+                          <button key={l.value} onClick={() => toggle(l.value)}
+                            className={`px-2.5 py-1 rounded-lg text-xs border ${d.kosherLevel.includes(l.value) ? 'bg-green-600 text-white border-green-600' : 'bg-white text-slate-600 border-slate-200'}`}>
+                            {l.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={d.mashgiachName ?? ''} onChange={e => patch({ mashgiachName: e.target.value })} placeholder="שם המשגיח" className={inp} />
+                        <input value={d.mashgiachPhone ?? ''} onChange={e => patch({ mashgiachPhone: e.target.value })} placeholder="טלפון המשגיח" className={inp} dir="ltr" />
+                      </div>
+                    </div>
+                  );
+                })}
+                {departments.length === 0 && <p className="text-xs text-slate-400 text-center py-2">אין מחלקות — העסק מוצג עם כשרות אחת</p>}
               </div>
             </div>
           )}

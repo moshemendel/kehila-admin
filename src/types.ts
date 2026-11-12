@@ -202,6 +202,8 @@ export interface SynagogueAnnouncement {
 export interface Synagogue {
   imageUrl?: string;              // primary / mood image
   images?: string[];              // additional gallery images
+  /** Pan/zoom of the primary image; applies only while url === imageUrl. See utils/moodCrop. */
+  imageCrop?: { url: string; zoom: number; fx: number; fy: number };
   /** Which custom decides when this shul's selichot begin — re-derived yearly.
    *  See kehila-app/src/types/index.ts. */
   selichotCustom?: 'sephardi' | 'ashkenazi';
@@ -271,6 +273,8 @@ export interface AppointmentConfig {
 export interface Mikveh {
   imageUrl?: string;              // primary / atmosphere image
   images?: string[];              // additional gallery images
+  /** Pan/zoom of the primary image; applies only while url === imageUrl. See utils/moodCrop. */
+  imageCrop?: { url: string; zoom: number; fx: number; fy: number };
   id: string;
   cityId: string;
   /** Which of the tenant's areas this mikveh is in. Mirrors kehila-app's
@@ -320,7 +324,22 @@ export interface KashrutUpdate {
   expiresAt?: any;
 }
 
+/** A section of a larger business with its own kashrut (supermarket produce, deli, fish...).
+ *  Mirrors kehila-app's BusinessDepartment. */
+export interface BusinessDepartment {
+  id: string;
+  name: string;
+  categories?: string[];
+  kosherLevel: KosherLevel[];
+  issuedBy?: string;
+  mashgiachName?: string;
+  mashgiachPhone?: string;
+  notes?: string;
+}
+
 export interface business {
+  /** Framed crop of the main picture; absent = shown whole. A default crop (zoom 1, centred) is kept: it means cover. */
+  imageCrop?: { url: string; zoom: number; fx: number; fy: number };
   id: string;
   cityId: string;
   /** Which of the tenant's areas this business is in. Mirrors kehila-app's
@@ -336,6 +355,7 @@ export interface business {
   description?: string;
   openingHours: OpeningHours;
   kosherCertificates: KosherCertificate[];
+  departments?: BusinessDepartment[];
   contacts?: { name: string; phone?: string }[];
   latitude?: number;
   longitude?: number;
@@ -349,6 +369,8 @@ export type EventCategory = 'shiur' | 'community' | 'youth' | 'charity' | 'holid
 
 export interface CommunityEvent {
   imageUrl?: string;              // single event picture
+  /** Pan/zoom of the picture; applies only while url === imageUrl. See utils/moodCrop. */
+  imageCrop?: { url: string; zoom: number; fx: number; fy: number };
   id: string;
   cityId: string;
   /** Which of the tenant's areas this event is in/for. Mirrors kehila-app's

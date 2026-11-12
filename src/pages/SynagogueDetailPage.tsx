@@ -1,7 +1,7 @@
 import 'leaflet/dist/leaflet.css';
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { doc, getDoc, getDocs, collection, query, where, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, query, where, updateDoc, serverTimestamp, arrayUnion, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import type {
   Synagogue, PrayerTimeSlot, ZmanimAnchor,
@@ -18,6 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { nanoid } from '../utils/nanoid';
 import ImageUploadField from '../components/ImageUploadField';
 import { useImageTracker } from '../utils/useImageTracker';
+import { cropToStore, type MoodCrop } from '../utils/moodCrop';
 import MapTiles from '../components/MapTiles';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
 import ZmanimMethodEditor from '../components/ZmanimMethodEditor';
@@ -541,6 +542,7 @@ export default function SynagogueDetailPage() {
 
   // Pictures: ordered, [0] = primary (imageUrl), the rest go to images[]
   const [images, setImages] = useState<string[]>([]);
+  const [imageCrop, setImageCrop] = useState<MoodCrop | undefined>(undefined);
   const imageTracker = useImageTracker();
   // Leaving the page with unsaved uploads: don't strand them in Storage.
   useEffect(() => () => imageTracker.discard(), [imageTracker]);
@@ -649,6 +651,7 @@ export default function SynagogueDetailPage() {
       });
       imageTracker.reset();
       setImages([...(data.imageUrl ? [data.imageUrl] : []), ...(data.images ?? []).filter(u => u !== data.imageUrl)]);
+      setImageCrop(data.imageCrop);
       const ws = data.weeklySchedule ?? { shacharit: [], mincha: [], maariv: [] };
       setWeekly({ shacharit: ws.shacharit ?? [], mincha: ws.mincha ?? [], maariv: ws.maariv ?? [], selichot: ws.selichot ?? [] });
       setWeeklyNotes(ws.notes ?? '');
@@ -682,6 +685,7 @@ export default function SynagogueDetailPage() {
         longitude: parseFloat(info.longitude) || null,
         imageUrl: images[0] ?? '',
         images: images.slice(1),
+        imageCrop: cropToStore(imageCrop, images[0]) ?? deleteField(),
         updatedAt: serverTimestamp(),
       });
       imageTracker.commit(images);
@@ -1020,6 +1024,7 @@ export default function SynagogueDetailPage() {
                     dir={id ? `synagogues/${id}/gallery` : ''}
                     images={images}
                     onChange={setImages}
+                    crop={{ value: imageCrop, onChange: setImageCrop }}
                     tracker={imageTracker}
                   />
                   <p className="text-[11px] text-slate-400 mt-2">השינויים בתמונות נשמרים בלחיצה על "שמור שינויים".</p>

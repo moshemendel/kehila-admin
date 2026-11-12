@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   collection, getDocs, query, where, doc, setDoc, deleteDoc,
-  serverTimestamp, getDoc, updateDoc, arrayUnion,
+  serverTimestamp, getDoc, updateDoc, arrayUnion, deleteField,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
@@ -18,6 +18,7 @@ import { Plus, Trash2, Upload, Download, MapPin, Copy } from 'lucide-react';
 import { nanoid } from '../utils/nanoid';
 import ImageUploadField from '../components/ImageUploadField';
 import { useImageTracker } from '../utils/useImageTracker';
+import { cropToStore, type MoodCrop } from '../utils/moodCrop';
 import { useRoleCatalogue } from '../utils/roleCatalogue';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, Marker, useMapEvents } from 'react-leaflet';
@@ -100,6 +101,7 @@ export default function MikvehPage() {
   // The id is allocated before the first save so uploads have a folder and backing out leaves no record.
   const [images, setImages] = useState<string[]>([]);
   const [pendingId, setPendingId] = useState('');
+  const [imageCrop, setImageCrop] = useState<MoodCrop | undefined>(undefined);
   const imageTracker = useImageTracker();
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
@@ -158,6 +160,7 @@ export default function MikvehPage() {
     imageTracker.reset();
     setPendingId(nanoid());
     setImages([]);
+    setImageCrop(undefined);
     setEditing(null);
     setPendingPick(null);
     setForm(EMPTY_FORM);
@@ -168,6 +171,7 @@ export default function MikvehPage() {
     imageTracker.reset();
     setPendingId(row.id);
     setImages([...(row.imageUrl ? [row.imageUrl] : []), ...(row.images ?? []).filter(u => u !== row.imageUrl)]);
+    setImageCrop(row.imageCrop);
     setEditing(row);
     setPendingPick(row.latitude != null && row.longitude != null ? { lat: row.latitude, lng: row.longitude } : null);
     setForm({
@@ -198,6 +202,7 @@ export default function MikvehPage() {
         ...editing, ...form, id, cityId, updatedAt: serverTimestamp(),
         imageUrl: images[0] ?? '',
         images: images.slice(1),
+        imageCrop: cropToStore(imageCrop, images[0]) ?? deleteField(),
         contacts: form.contacts.filter(c => c.name.trim()).map(c => ({ name: c.name, ...(c.phone ? { phone: c.phone } : {}) })),
         appointmentConfig: form.requiresAppointment ? form.appointmentConfig : null,
       }, { merge: true });
@@ -230,6 +235,7 @@ export default function MikvehPage() {
     imageTracker.reset();
     setPendingId(id);
     setImages([]);
+    setImageCrop(undefined);
     const dupForm = {
       ...EMPTY_FORM,
       name: `${row.name} (העתק)`,
@@ -530,6 +536,7 @@ export default function MikvehPage() {
               dir={pendingId ? `mikvaot/${pendingId}/gallery` : ''}
               images={images}
               onChange={setImages}
+              crop={{ value: imageCrop, onChange: setImageCrop }}
               primaryLabel="תמונת אווירה"
               tracker={imageTracker}
             />

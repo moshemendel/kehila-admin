@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { collection, getDocs, query, where, doc, deleteDoc, updateDoc, addDoc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, deleteDoc, updateDoc, addDoc, setDoc, deleteField, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,6 +11,7 @@ import { sendPush } from '../utils/push';
 import { nanoid } from '../utils/nanoid';
 import ImageUploadField from '../components/ImageUploadField';
 import { useImageTracker } from '../utils/useImageTracker';
+import { cropToStore, type MoodCrop } from '../utils/moodCrop';
 import { deleteImageByUrl } from '../utils/uploadImage';
 
 const CATEGORY_LABELS: Record<EventCategory, string> = {
@@ -62,6 +63,7 @@ export default function EventsPage() {
   // (events/<id>/image/) and abandoning the form leaves neither a document nor a file behind.
   const [images, setImages] = useState<string[]>([]);
   const [pendingId, setPendingId] = useState('');
+  const [imageCrop, setImageCrop] = useState<MoodCrop | undefined>(undefined);
   const imageTracker = useImageTracker();
   // Areas — a regional council's settlements, or a plain city's own one (in
   // which case this whole layer stays hidden — the "golden rule").
@@ -109,6 +111,7 @@ export default function EventsPage() {
     imageTracker.reset();
     setPendingId(nanoid());
     setImages([]);
+    setImageCrop(undefined);
     setModalOpen(true);
   };
 
@@ -124,6 +127,7 @@ export default function EventsPage() {
     imageTracker.reset();
     setPendingId(ev.id);
     setImages(ev.imageUrl ? [ev.imageUrl] : []);
+    setImageCrop(ev.imageCrop);
     setEditingId(ev.id);
     setForm({
       title: ev.title ?? '', description: ev.description ?? '',
@@ -173,6 +177,7 @@ export default function EventsPage() {
           startDate: form.startDate, location: form.location, isAlert: form.isAlert,
           areaId: form.areaId, audience: form.audience,
           imageUrl: images[0] ?? '',
+          imageCrop: cropToStore(imageCrop, images[0]) ?? deleteField(),
         });
         imageTracker.commit(images);
         closeCreateModal();
@@ -183,6 +188,8 @@ export default function EventsPage() {
         ...form, cityId, createdBy: appUser?.uid ?? '',
         createdAt: serverTimestamp(), isAlert: form.isAlert,
         imageUrl: images[0] ?? '',
+        // setDoc without merge cannot carry deleteField(); a new event simply omits the crop.
+        ...(cropToStore(imageCrop, images[0]) ? { imageCrop: cropToStore(imageCrop, images[0]) } : {}),
       });
       imageTracker.commit(images);
       // Only urgent (isAlert) events broadcast a push to the whole city — regular
@@ -403,10 +410,12 @@ export default function EventsPage() {
           <div className="col-span-2">
             <ImageUploadField
               single
+              aspect="360 / 200"
               title="תמונה"
               dir={pendingId ? `events/${pendingId}/image` : ''}
               images={images}
               onChange={setImages}
+              crop={{ value: imageCrop, onChange: setImageCrop }}
               tracker={imageTracker}
             />
           </div>
