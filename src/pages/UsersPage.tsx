@@ -176,7 +176,7 @@ function AddUserModal({ open, onClose, onCreated, currentCityId, cities, all }: 
 
 // ─── Edit role modal ──────────────────────────────────────────────────────────
 
-function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }: {
+function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly, presetCityId }: {
   open: boolean;
   user: AppUser | null;
   onSave: (user: AppUser, draft: RoleDraft, cityId: string, isTestAccount: boolean) => Promise<void>;
@@ -185,6 +185,9 @@ function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }
   all: { synagogues: Synagogue[]; businesses: business[]; mikvaot: Mikveh[] };
   /** A domain manager appointing, rather than an admin editing. */
   appointOnly: boolean;
+  /** Set when an existing account from another city is being brought here:
+   *  the city picker opens on this city and is shown whatever the roles are. */
+  presetCityId?: string;
 }) {
   const [draft, setDraft]   = useState<RoleDraft>(emptyDraft());
   const [cityId, setCityId] = useState('');
@@ -195,8 +198,8 @@ function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }
   const cat = useRoleCatalogue();
 
   useEffect(() => {
-    if (user) { setDraft(draftFromUser(user)); setCityId(user.homeCityId ?? user.cityId ?? ''); setIsTest(!!user.isTestAccount); }
-  }, [user]);
+    if (user) { setDraft(draftFromUser(user)); setCityId(presetCityId ?? user.homeCityId ?? user.cityId ?? ''); setIsTest(!!user.isTestAccount); }
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const blocked = missingMessage(cat, draft, actorRoles);
 
@@ -226,9 +229,9 @@ function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }
               only to a super_admin and only for that role — a city_admin's own
               homeCityId is their jurisdiction and the rule refuses to let anyone
               but a super_admin move it. */}
-          {isSuperAdmin && draft.roles.includes('city_admin') && (
+          {isSuperAdmin && (draft.roles.includes('city_admin') || !!presetCityId) && (
             <div className="mb-5">
-              <label className={lbl}>עיר</label>
+              <label className={lbl}>{presetCityId ? 'העברה לעיר' : 'עיר'}</label>
               <select value={cityId} onChange={e => setCityId(e.target.value)} className={inp}>
                 <option value="">— בחר עיר —</option>
                 {cities.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -263,6 +266,43 @@ function EditRoleModal({ open, user, onSave, onClose, cities, all, appointOnly }
           </div>
         </>
       )}
+    </Modal>
+  );
+}
+
+// ─── Bring an existing account here ───────────────────────────────────────────
+
+/** Super admin only. A city's page lists only that city's people, so an
+ *  account that belongs to another city can't be reached from here — this
+ *  finds it by name or email so it can be moved (and appointed) without
+ *  being recreated. */
+function BringUserModal({ open, onClose, users, cityName, onPick }: {
+  open: boolean;
+  onClose: () => void;
+  users: AppUser[];
+  cityName: (cid: string) => string;
+  onPick: (u: AppUser) => void;
+}) {
+  const [q, setQ] = useState('');
+  useEffect(() => { if (open) setQ(''); }, [open]);
+  const term = q.trim().toLowerCase();
+  const matches = term.length < 2 ? [] : users.filter(u =>
+    (u.email ?? '').toLowerCase().includes(term) || (u.displayName ?? '').toLowerCase().includes(term)).slice(0, 20);
+  return (
+    <Modal open={open} title="מינוי משתמש קיים מעיר אחרת" onClose={onClose} size="md">
+      <input autoFocus value={q} onChange={e => setQ(e.target.value)} className={inp}
+        placeholder="חיפוש לפי שם או אימייל (לפחות 2 תווים)" />
+      <div className="mt-3 max-h-72 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+        {term.length < 2 && <p className="text-xs text-slate-400 px-3 py-3">הקלד כדי לחפש.</p>}
+        {term.length >= 2 && matches.length === 0 && <p className="text-xs text-slate-400 px-3 py-3">לא נמצאו משתמשים.</p>}
+        {matches.map(u => (
+          <button key={u.uid} type="button" onClick={() => onPick(u)}
+            className="w-full text-right px-3 py-2.5 hover:bg-slate-50">
+            <div className="text-sm font-semibold text-slate-800">{u.displayName || '—'}</div>
+            <div className="text-xs text-slate-400">{u.email} · {cityName(u.homeCityId ?? u.cityId ?? '') || 'ללא עיר'}</div>
+          </button>
+        ))}
+      </div>
     </Modal>
   );
 }
@@ -310,6 +350,8 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState<string[]>([]); // empty = everyone
   const [addOpen, setAddOpen]       = useState(false);
   const [editUser, setEditUser]     = useState<AppUser | null>(null);
+  const [bringOpen, setBringOpen]   = useState(false);
+  const [presetCity, setPresetCity] = useState<string | undefined>(undefined);
 
   const load = async () => {
     setLoading(true);
@@ -354,7 +396,9 @@ export default function UsersPage() {
       // The city picker only assigns a city_admin's administrative scope — it
       // must not overwrite an existing manager's homeCityId when unrelated role
       // fields are being edited.
-      const homeCityId = draft.roles.includes('city_admin') && isSuperAdmin
+      // (or differs from the account's own city, which only happens when the
+      // picker was opened to bring an account here from another city.)
+      const homeCityId = isSuperAdmin && (draft.roles.includes('city_admin') || pickedCityId !== (user.homeCityId ?? user.cityId))
         ? pickedCityId
         : (user.homeCityId ?? user.cityId);
       updates[0] = { ...updates[0], homeCityId };
@@ -519,12 +563,20 @@ export default function UsersPage() {
               : `${visibleUsers.length} משתמשים ${isSuperAdmin && !routeCityId ? 'במערכת' : 'בעיר'}`}
           </p>
         </div>
-        {canCreate && (
-          <button onClick={() => setAddOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white rounded-xl text-sm font-semibold hover:bg-[#15306a] transition-colors">
-            <Plus size={15} /> הוסף משתמש
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {isSuperAdmin && routeCityId && (
+            <button onClick={() => setBringOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors">
+              <UserPlus size={15} /> משתמש קיים מעיר אחרת
+            </button>
+          )}
+          {canCreate && (
+            <button onClick={() => setAddOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-[#1B3A6B] text-white rounded-xl text-sm font-semibold hover:bg-[#15306a] transition-colors">
+              <Plus size={15} /> הוסף משתמש
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -595,12 +647,21 @@ export default function UsersPage() {
         all={all}
       />
 
+      <BringUserModal
+        open={bringOpen}
+        onClose={() => setBringOpen(false)}
+        users={allUsers.filter(u => u.uid !== appUser?.uid && belongsTo(u) !== routeCityId)}
+        cityName={cityName}
+        onPick={u => { setBringOpen(false); setPresetCity(routeCityId); setEditUser(u); }}
+      />
+
       {/* Edit role */}
       <EditRoleModal
         open={!!editUser}
         user={editUser}
+        presetCityId={presetCity}
         onSave={handleRoleSave}
-        onClose={() => setEditUser(null)}
+        onClose={() => { setEditUser(null); setPresetCity(undefined); }}
         cities={cities}
         all={all}
         appointOnly={appointer}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { doc, getDoc, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
+import { useAuth } from '../contexts/AuthContext';
 import type { City, CityModules } from '../types';
 import CityModulesEditor from '../components/CityModulesEditor';
 import { CityForm, calcMountainAngle, type FormState } from './CitiesMapPage';
@@ -19,6 +20,9 @@ const EMPTY: FormState = { name: '', country: '', timezone: '', latitude: '', lo
 // elevation/mountain-angle here are derived from the typed coordinates instead.
 export default function CitySettingsPage() {
   const { cityId } = useParams<{ cityId: string }>();
+  const { appUser } = useAuth();
+  const actorRoles = (appUser?.roles ?? (appUser?.role ? [appUser.role] : [])) as string[];
+  const isSuperAdmin = actorRoles.includes('super_admin') || actorRoles.includes('dev');
   const [form, setForm]         = useState<FormState>(EMPTY);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
@@ -81,7 +85,9 @@ export default function CitySettingsPage() {
         // module goes back to 'live', and a merge would leave the old value
         // behind.
         modules,
-        hidden,
+        // Only a super admin may open or close the city; the rules refuse the
+        // write from anyone else, so it is not even sent.
+        ...(isSuperAdmin && { hidden }),
         // An emptied field removes the logo rather than saving an empty string.
         religiousCouncilLogoUrl: rcLogoUrl.trim() || deleteField(),
         // Defaults are removed rather than stored, so untouched cities stay untouched.
@@ -243,7 +249,7 @@ export default function CitySettingsPage() {
           <CityModulesEditor value={modules} onChange={setModules} />
         </div>
 
-        <div className="pt-5 mt-5 border-t border-slate-100">
+        {isSuperAdmin && <div className="pt-5 mt-5 border-t border-slate-100">
           <label htmlFor="city-hidden" className="flex items-start gap-3 cursor-pointer">
             <input
               id="city-hidden"
@@ -259,7 +265,7 @@ export default function CitySettingsPage() {
               </span>
             </span>
           </label>
-        </div>
+        </div>}
 
         <div className="flex items-center gap-3 pt-4 border-t border-slate-100 mt-4">
           <button
