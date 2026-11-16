@@ -3,6 +3,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import type { AppUser } from '../types';
+import { mayOpenConsole, rolesOf } from '../utils/consoleAccess';
 
 interface AuthCtx {
   firebaseUser: User | null;
@@ -22,7 +23,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setFirebaseUser(u);
       if (u) {
         const snap = await getDoc(doc(db, 'users', u.uid));
-        setAppUser(snap.exists() ? { uid: u.uid, ...snap.data() } as AppUser : null);
+        // The console's own door, enforced here and not only on the login form:
+        // a signed-in account without a staff role is treated as signed out, so
+        // no route can render for it however the session was established.
+        const data = snap.exists() ? ({ uid: u.uid, ...snap.data() } as AppUser) : null;
+        setAppUser(data && mayOpenConsole(rolesOf(data)) ? data : null);
       } else {
         setAppUser(null);
       }

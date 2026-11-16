@@ -1,32 +1,17 @@
 import { useState, type FormEvent } from 'react';
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, type User } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail, type User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import type { UserRole } from '../types';
-
-/**
- * Who may open the console: anyone holding a role other than plain `user`.
- *
- * This was a list of the nine roles that existed when it was written, and it
- * aged exactly as you would expect — content_admin was added to the app and the
- * rules, and the one person a city_admin would delegate to was silently locked
- * out of the tool they were delegated to use, with "אין הרשאה" and no clue why.
- *
- * Asked as a question instead of kept as a list, it cannot go stale: a new role
- * is by definition not `user`, so it is admitted the day it is created. The
- * gate here is only "is this an ordinary member" — what each role may actually
- * do once inside is decided by firestore.rules on every read and write.
- */
-function mayOpenConsole(roles: UserRole[]): boolean {
-  return roles.some((r) => r && r !== 'user');
-}
+import { mayOpenConsole } from '../utils/consoleAccess';
 
 export default function Login() {
   const [email, setEmail]     = useState('');
   const [password, setPassword] = useState('');
   const [error, setError]     = useState('');
   const [loading, setLoading] = useState(false);
+  const [info, setInfo]       = useState('');
   const navigate = useNavigate();
 
   // Shared by both sign-in methods: the account must have a profile and hold a
@@ -44,9 +29,25 @@ export default function Login() {
     navigate('/');
   };
 
+  // Same answer whether or not the address has an account, so the form cannot be
+  // used to probe which emails are registered.
+  const handleForgot = async () => {
+    setError(''); setInfo('');
+    if (!email.trim()) { setError('הזן את כתובת האימייל למעלה ואז לחץ שוב על "שכחתי סיסמה"'); return; }
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+    } catch (err: any) {
+      if (err.code === 'auth/invalid-email') { setError('כתובת אימייל לא תקינה'); setLoading(false); return; }
+      if (err.code === 'auth/too-many-requests') { setError('יותר מדי ניסיונות, נסה שוב מאוחר יותר'); setLoading(false); return; }
+    }
+    setInfo('אם קיים חשבון עם כתובת זו, נשלח אליה קישור לאיפוס סיסמה');
+    setLoading(false);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(''); setInfo('');
     setLoading(true);
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
@@ -104,6 +105,15 @@ export default function Login() {
               placeholder="••••••••"
             />
           </div>
+
+          <button type="button" onClick={handleForgot} disabled={loading}
+            className="text-xs text-blue-600 hover:underline self-start -mt-2 disabled:opacity-60">
+            שכחתי סיסמה
+          </button>
+
+          {info && (
+            <div className="bg-green-50 text-green-700 text-sm px-4 py-2.5 rounded-xl border border-green-100">{info}</div>
+          )}
 
           {error && (
             <div className="bg-red-50 text-red-600 text-sm px-4 py-2.5 rounded-xl border border-red-100">
