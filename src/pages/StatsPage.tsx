@@ -32,6 +32,10 @@ interface CityDetailStats {
   users: number; pushTokens: number; synagogues: number;
   businesses: number; mikvaot: number; events: number;
   eruvOpen: number; eruvResolved: number;
+  // From users.lastActiveAt (stamped by the app about once a day). Accounts
+  // only: guests have no profile document and are not counted.
+  mau: number;
+  retentionCohort: number; retentionActive: number;
   roles: { name: string; value: number }[];
 }
 
@@ -237,9 +241,24 @@ export default function StatsPage() {
 
       const usersSnap = await getDocs(query(collection(db, 'users'), where('cityId', '==', selectedCityId)));
       const roleCount: Record<string, number> = {};
+      const DAY = 86_400_000;
+      const t30 = Date.now() - 30 * DAY;
+      const t60 = Date.now() - 60 * DAY;
+      let mau = 0, retentionCohort = 0, retentionActive = 0;
       usersSnap.docs.forEach(d => {
-        const role = (d.data().role as string) ?? 'user';
+        const data = d.data();
+        const role = (data.role as string) ?? 'user';
         roleCount[role] = (roleCount[role] ?? 0) + 1;
+        const active  = (data.lastActiveAt as Timestamp | undefined)?.toMillis?.();
+        const created = (data.createdAt   as Timestamp | undefined)?.toMillis?.();
+        const isActive = active !== undefined && active >= t30;
+        if (isActive) mau++;
+        // Approximate 30-day retention: of those who registered 30-60 days ago,
+        // the share active in the last 30 days.
+        if (created !== undefined && created >= t60 && created < t30) {
+          retentionCohort++;
+          if (isActive) retentionActive++;
+        }
       });
 
       const eruvSnap = await getDocs(query(collection(db, 'eruvReports'), where('cityId', '==', selectedCityId)));
@@ -254,6 +273,7 @@ export default function StatsPage() {
           users: usersSnap.size, pushTokens: push,
           synagogues: syn, businesses: biz, mikvaot: mik, events: evts,
           eruvOpen, eruvResolved,
+          mau, retentionCohort, retentionActive,
           roles: Object.entries(roleCount)
             .map(([name, value]) => ({ name: ROLE_LABELS[name] ?? name, value }))
             .sort((a, b) => b.value - a.value),
@@ -462,6 +482,13 @@ export default function StatsPage() {
               {/* KPI cards */}
               <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
                 <StatCard label="משתמשים"    value={cityDetail.users}       color="text-purple-600" />
+                <StatCard label="פעילים ב-30 יום" value={cityDetail.mau}
+                  sub={cityDetail.users > 0 ? `${Math.round((cityDetail.mau / cityDetail.users) * 100)}% מהרשומים` : undefined}
+                  color="text-emerald-600" />
+                <StatCard label="שימור 30 יום"
+                  value={cityDetail.retentionCohort > 0 ? `${Math.round((cityDetail.retentionActive / cityDetail.retentionCohort) * 100)}%` : '—'}
+                  sub={`${cityDetail.retentionActive} מתוך ${cityDetail.retentionCohort} שנרשמו לפני 30–60 יום`}
+                  color="text-teal-600" />
                 <StatCard label="Push רשומים" value={`${cityPushRate}%`} sub={`${cityDetail.pushTokens} מכשירים`} color="text-orange-600" />
                 <StatCard label="בתי כנסת"   value={cityDetail.synagogues}  color="text-blue-600" />
                 <StatCard label="עסקים כשרים" value={cityDetail.businesses}  color="text-green-600" />
