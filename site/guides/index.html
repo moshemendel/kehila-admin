@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>סרטוני הדרכה — קהילה</title>
+<meta name="description" content="סרטוני הדרכה לצוות הניהול של קהילה: באפליקציה ובקונסולה, לפי תפקיד.">
+<style>
+  :root { --navy:#1B3A6B; --gold:#B8922A; --text:#0F1E38; --muted:#4A5A7A; --line:#D0DAF0; --bg:#F4F7FC; --card:#fff; --link:#2E6DB4; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; line-height:1.6; }
+  .wrap { max-width: 960px; margin:0 auto; padding: 28px 20px 72px; }
+  header { border-bottom:3px solid var(--gold); padding-bottom:14px; margin-bottom:22px; }
+  header a { color:inherit; text-decoration:none; }
+  h1 { color:var(--navy); font-size:1.7rem; margin:0 0 4px; }
+  .sub { color:var(--muted); font-size:.95rem; margin:0; }
+  .filters { display:flex; flex-direction:column; gap:10px; margin-bottom:22px; }
+  .group { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .group > span { color:var(--muted); font-size:.9rem; min-width:64px; }
+  .chip { border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:999px;
+          padding:6px 14px; font:inherit; font-size:.92rem; cursor:pointer; }
+  .chip[aria-pressed="true"] { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .chip:focus-visible, .card:focus-visible, .nav a:focus-visible { outline:3px solid var(--gold); outline-offset:2px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
+  .card { display:block; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden;
+          color:inherit; text-decoration:none; }
+  .card:hover { border-color:var(--gold); }
+  .thumb { position:relative; aspect-ratio:16/10; background:#0F1E38; }
+  .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .dur { position:absolute; inset-inline-start:8px; bottom:8px; background:rgba(0,0,0,.72); color:#fff;
+         font-size:.78rem; padding:1px 7px; border-radius:6px; direction:ltr; }
+  .body { padding:12px 14px 14px; }
+  .body h3 { margin:0 0 6px; font-size:1rem; color:var(--navy); }
+  .tags { display:flex; gap:6px; flex-wrap:wrap; }
+  .tag { font-size:.75rem; color:var(--muted); border:1px solid var(--line); border-radius:6px; padding:0 7px; }
+  .empty { color:var(--muted); padding:30px 0; }
+  .player { background:#000; border-radius:12px; overflow:hidden; }
+  video { width:100%; display:block; aspect-ratio:16/10; background:#000; }
+  .detail h2 { color:var(--navy); margin:18px 0 6px; font-size:1.35rem; }
+  .detail p { margin:0 0 14px; }
+  .nav { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:22px; }
+  .nav a, .back { color:var(--link); font-weight:600; text-decoration:none; }
+  .nav a:hover, .back:hover { text-decoration:underline; }
+  .share { margin-top:14px; }
+  .share button { border:1px solid var(--line); background:var(--card); color:var(--text); border-radius:8px;
+                  padding:6px 14px; font:inherit; cursor:pointer; }
+  footer { margin-top:40px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:.9rem; }
+  footer a { color:var(--link); }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0F1729; --text:#E8EDF7; --muted:#9DAECD; --line:#2A3A5C; --card:#16203A; --link:#8FB6E8; }
+    h1, .body h3, .detail h2 { color:#8FB6E8; }
+    .chip[aria-pressed="true"] { background:#8FB6E8; border-color:#8FB6E8; color:#0F1729; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><a href="/guides/">סרטוני הדרכה</a></h1>
+    <p class="sub">הדרכות קצרות לצוות הניהול של קהילה, באפליקציה ובקונסולה</p>
+  </header>
+  <main id="view" aria-live="polite"></main>
+  <footer><a href="/">קהילה</a> · <a href="/privacy">מדיניות פרטיות</a></footer>
+</div>
+
+<script>
+(function () {
+  var view = document.getElementById('view');
+  var data = null;
+  var filter = { role: 'all', surface: 'all' };
+
+  function el(tag, attrs, children) {
+    var n = document.createElement(tag);
+    Object.keys(attrs || {}).forEach(function (k) {
+      if (k === 'text') n.textContent = attrs[k];
+      else if (k === 'class') n.className = attrs[k];
+      else n.setAttribute(k, attrs[k]);
+    });
+    (children || []).forEach(function (c) { if (c) n.appendChild(c); });
+    return n;
+  }
+  function fmt(sec) {
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  function roleLabel(v) { return data.roles[v.role] || v.role; }
+  function surfaceLabel(v) { return data.surfaces[v.surface] || v.surface; }
+  function currentId() {
+    var m = location.pathname.match(/^\/guides\/([^\/]+)\/?$/);
+    return m && m[1] !== 'index.html' ? decodeURIComponent(m[1]) : null;
+  }
+  function matches(v) {
+    // "all"-role videos (e.g. login) are relevant to every role, so they stay visible.
+    var roleOk = filter.role === 'all' || v.role === 'all' || v.role === filter.role;
+    var surfOk = filter.surface === 'all' || v.surface === 'both' || v.surface === filter.surface;
+    return roleOk && surfOk;
+  }
+
+  function chipGroup(label, options, key) {
+    var g = el('div', { class: 'group', role: 'group', 'aria-label': label }, [el('span', { text: label })]);
+    options.forEach(function (o) {
+      var b = el('button', { type: 'button', class: 'chip', 'aria-pressed': String(filter[key] === o[0]), text: o[1] });
+      b.addEventListener('click', function () { filter[key] = o[0]; renderList(); });
+      g.appendChild(b);
+    });
+    return g;
+  }
+
+  function renderList() {
+    document.title = 'סרטוני הדרכה — קהילה';
+    var roles = [['all', 'הכל']];
+    var seen = {};
+    data.videos.forEach(function (v) {
+      if (v.role !== 'all' && !seen[v.role]) { seen[v.role] = 1; roles.push([v.role, data.roles[v.role] || v.role]); }
+    });
+    var surfaces = [['all', 'הכל'], ['console', 'קונסולה'], ['app', 'אפליקציה']];
+    var grid = el('div', { class: 'grid' });
+    var list = data.videos.filter(matches);
+    list.forEach(function (v) {
+      var thumb = el('div', { class: 'thumb' }, [
+        el('img', { src: v.poster, alt: '', loading: 'lazy' }),
+        el('span', { class: 'dur', text: fmt(v.duration) })
+      ]);
+      var body = el('div', { class: 'body' }, [
+        el('h3', { text: v.title }),
+        el('div', { class: 'tags' }, [el('span', { class: 'tag', text: roleLabel(v) }), el('span', { class: 'tag', text: surfaceLabel(v) })])
+      ]);
+      grid.appendChild(el('a', { class: 'card', href: '/guides/' + encodeURIComponent(v.id) }, [thumb, body]));
+    });
+    view.replaceChildren(
+      el('div', { class: 'filters' }, [chipGroup('אני:', roles, 'role'), chipGroup('אצלי:', surfaces, 'surface')]),
+      list.length ? grid : el('p', { class: 'empty', text: 'עדיין אין סרטונים לשילוב הזה. הם בהכנה.' })
+    );
+  }
+
+  function renderDetail(id) {
+    var idx = data.videos.findIndex(function (v) { return v.id === id; });
+    if (idx < 0) { view.replaceChildren(el('p', { class: 'empty', text: 'הסרטון לא נמצא.' }), el('a', { class: 'back', href: '/guides/', text: 'לכל הסרטונים' })); return; }
+    var v = data.videos[idx];
+    document.title = v.title + ' — קהילה';
+    var video = el('video', { controls: '', preload: 'metadata', poster: v.poster, playsinline: '' }, [el('source', { src: v.file, type: 'video/mp4' })]);
+    var share = el('div', { class: 'share' });
+    var btn = el('button', { type: 'button', text: 'העתקת קישור לסרטון' });
+    btn.addEventListener('click', function () {
+      var url = location.origin + '/guides/' + encodeURIComponent(v.id);
+      var done = function () { btn.textContent = 'הקישור הועתק'; };
+      if (navigator.clipboard) navigator.clipboard.writeText(url).then(done, function () { prompt('העתיקו את הקישור:', url); });
+      else prompt('העתיקו את הקישור:', url);
+    });
+    share.appendChild(btn);
+    var prev = data.videos[idx - 1], next = data.videos[idx + 1];
+    var nav = el('div', { class: 'nav' }, [
+      prev ? el('a', { href: '/guides/' + encodeURIComponent(prev.id), text: '→ ' + prev.title }) : el('span'),
+      next ? el('a', { href: '/guides/' + encodeURIComponent(next.id), text: next.title + ' ←' }) : el('span')
+    ]);
+    view.replaceChildren(
+      el('a', { class: 'back', href: '/guides/', text: '→ כל הסרטונים' }),
+      el('div', { class: 'detail' }, [
+        el('h2', { text: v.title }),
+        el('div', { class: 'tags' }, [el('span', { class: 'tag', text: roleLabel(v) }), el('span', { class: 'tag', text: surfaceLabel(v) }), el('span', { class: 'tag', text: fmt(v.duration) })]),
+        el('p', { text: v.description }),
+        el('div', { class: 'player' }, [video]),
+        share, nav
+      ])
+    );
+  }
+
+  function route() {
+    var id = currentId();
+    if (id) renderDetail(id); else renderList();
+    window.scrollTo(0, 0);
+  }
+
+  // Client-side navigation for internal /guides links, so switching videos doesn't reload the page.
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href^="/guides/"]');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    history.pushState(null, '', a.getAttribute('href'));
+    route();
+  });
+  window.addEventListener('popstate', route);
+
+  fetch('/guides/guides.json', { cache: 'no-cache' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { data = d; route(); })
+    .catch(function () { view.textContent = 'לא ניתן לטעון את רשימת הסרטונים. נסו לרענן את הדף.'; });
+})();
+</script>
+</body>
+</html>

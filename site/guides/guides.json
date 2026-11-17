@@ -1,0 +1,53 @@
+{
+  "roles": {
+    "all": "כולם",
+    "gabbai": "גבאי"
+  },
+  "surfaces": {
+    "console": "קונסולה (דפדפן)",
+    "app": "אפליקציה",
+    "both": "קונסולה ואפליקציה"
+  },
+  "videos": [
+    {
+      "id": "common-login",
+      "role": "all",
+      "surface": "both",
+      "title": "התחברות למערכת ולאפליקציה",
+      "description": "איך נכנסים למערכת הניהול בדפדפן ולאפליקציה בטלפון. מומלץ לצפות בו לפני כל סרטון אחר.",
+      "file": "/guides/videos/common-login.mp4",
+      "poster": "/guides/posters/common-login.jpg",
+      "duration": 59
+    },
+    {
+      "id": "gabbai-1-prayers",
+      "role": "gabbai",
+      "surface": "console",
+      "title": "גבאי 1: הוספה ועריכה של זמני תפילות",
+      "description": "הוספה ועדכון של זמני התפילות של בית הכנסת מתוך הקונסולה.",
+      "file": "/guides/videos/gabbai-1-prayers.mp4",
+      "poster": "/guides/posters/gabbai-1-prayers.jpg",
+      "duration": 87
+    },
+    {
+      "id": "gabbai-2-shiurim",
+      "role": "gabbai",
+      "surface": "console",
+      "title": "גבאי 2: הוספה ועריכה של שיעורי תורה",
+      "description": "הוספה ועדכון של שיעורי התורה של בית הכנסת מתוך הקונסולה.",
+      "file": "/guides/videos/gabbai-2-shiurim.mp4",
+      "poster": "/guides/posters/gabbai-2-shiurim.jpg",
+      "duration": 76
+    },
+    {
+      "id": "gabbai-3-events",
+      "role": "gabbai",
+      "surface": "console",
+      "title": "גבאי 3: אירועים והודעות של בית הכנסת",
+      "description": "פרסום אירוע או הודעה של בית הכנסת, והצגת הפעילות והארכיון, מתוך הקונסולה.",
+      "file": "/guides/videos/gabbai-3-events.mp4",
+      "poster": "/guides/posters/gabbai-3-events.jpg",
+      "duration": 83
+    }
+  ]
+}
